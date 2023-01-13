@@ -1,5 +1,9 @@
 # LoongArch代码生成与优化实验手册
 
+最好把虚拟机内存开到8G，磁盘分配200G
+
+因为LLVM-Project编译完有60多G
+
 ## 环境目录准备
 
 + 要创建编译器后端，首先需要在`llvm/lib/Target/`下创建一个子目录来保存与目标相关的所有文件，例如`lib/Target/LoongArch`
@@ -61,9 +65,24 @@ add_subdirectory(TargetInfo)
 
 参考教程：https://blog.csdn.net/SiberiaBear/article/details/103539530
 
+
+
+![Mips指令类型](https://pic1.zhimg.com/v2-436dbf8377614721f32f79543308eb48_r.jpg)
+
 ## Target Machine
 
 > LLVMTargetMachine是LLVM代码生成器的基类，包含各种抽象方法，具体实现应由继承它的LoongArchTargetMachine类来完成
 
 + 类似地，我们应该直接复制现有的TargetMachine类实现和头文件（例如Mips的），再进行更改。命名为`LoongArchTargetMachine.cpp`和`LoongArchTargetMachine.h`。
-+ 
+
+
+
+build 命令：
+
+`cmake -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Debug -G "Ninja" ../llvm`
+
+`ninja -j4`
+
+`-j4`命令为指定最大同时运行指令数为4（内存小的系统建议调小）
+
+`ninja -j4`指令中途报错时，修复后可以再次执行`ninja -j4`，自动从出错的步骤继续开始
