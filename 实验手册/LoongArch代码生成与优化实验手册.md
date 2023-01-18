@@ -1,73 +1,54 @@
-# LoongArch代码生成与优化实验手册
+# 序章
 
-最好把虚拟机内存开到8G，磁盘分配200G
 
-因为LLVM-Project编译完有60多G
 
-## 环境目录准备
+## 写在前面
 
-+ 要创建编译器后端，首先需要在`llvm/lib/Target/`下创建一个子目录来保存与目标相关的所有文件，例如`lib/Target/LoongArch`
-+ 在这个新目录中创建一个CMakeList.txt，它包含了你所需要的编译的所有cpp文件信息以及需要的组件等，其格式有特定的规范，最简单的方式是直接复制其它Target（例如Mips）下的CMakeList.txt并修改。
+​	笔者认为，LLVM 后端开发的精髓在于“抄袭与学习”。LLVM官方开发手册中也建议“通过复制其它后端的代码来开发新的后端会是较好的选择”。LLVM中大量使用TableGen语言和内置的接口，在开发过程中对于陌生的格式和定义保持“知其然而不知其所以然”的态度即可，将注意力更多地放在新后端的设计上，对于LLVM规范点到即止，将会有助于我们的开发效率。
 
-```cmake
-add_llvm_component_group(LoongArch)
+​	特别地，LoongArch与Mips的相似度极高，可以重点参考Mips的代码。在配置环境文件时，可以使用`Ctrl+F`搜索”Mips“关键词，在相同位置依葫芦画瓢即可。
 
-set(LLVM_TARGET_DEFINITIONS LoongArch.td)
+## 开发环境
 
-//标准的文件命名，只需将“MIPS”改为“LoongArch”
-tablegen(LLVM LoongArchGenAsmMatcher.inc -gen-asm-matcher)
-tablegen(LLVM LoongArchGenAsmWriter.inc -gen-asm-writer)
-tablegen(LLVM LoongArchGenDAGISel.inc -gen-dag-isel)
-tablegen(LLVM LoongArchGenDisassemblerTables.inc -gen-disassembler)
-tablegen(LLVM LoongArchGenInstrInfo.inc -gen-instr-info)
-tablegen(LLVM LoongArchGenMCPseudoLowering.inc -gen-pseudo-lowering)
-tablegen(LLVM LoongArchGenMCCodeEmitter.inc -gen-emitter)
-tablegen(LLVM LoongArchGenRegisterInfo.inc -gen-register-info)
-tablegen(LLVM LoongArchGenSubtargetInfo.inc -gen-subtarget)
++ Vmware Workstation 16 PRO - Ubuntu 20.04（虚拟内存12GB，虚拟磁盘200G）
++ ninja 1.10.0
++ gcc 9.4.0
++ clang 10.0.0-4ubuntu1
++ 笔者的虚拟机环境之前已经过系列配置，若您使用的是全新的虚拟机，除上述工具外，可能还需要其它支持软件包，当编译报错时根据报错信息使用`apt install`等方法安装即可。
 
-add_public_tablegen_target(LoongArchCommonTableGen)
+## Tips
 
-add_llvm_target(LoongArchCodeGen
-  LoongArchAsmPrinter.cpp
- ...//所有需要编译的cpp文件
++ 遇到Bug时，根据报错文件参考其它Target的代码进行修改。无法解决可以上Github的LLVM-project仓库（https://github.com/llvm/llvm-project/issues/）中提交issue，或者上LLVM官方社区论坛（https://discourse.llvm.org/latest）发布问题，一般24h之内就会有人回复。当然，建议在提问之前先通过关键字搜索是否有历史相同问题，大概率存在。
 
-  LINK_COMPONENTS
-  Analysis
-  AsmPrinter
-  CodeGen
-  Core
-  MC
-  LoongArchDesc
-  LoongArchInfo
-  SelectionDAG
-  Support
-  Target
-  GlobalISel
++ 对不同版本LLVM的源代码更改不理解时（例如变量类型的改变），可以通过查询git 提交记录来查看开发者的解释
 
-  ADD_TO_COMPONENT
-  LoongArch
-  )
+  	git blame 可以查询该文件的某一行的commit号（如4845531f）
+  	git log -1 4845531f 可显示该commit的备注说明
+
   
-//添加其它文件路径，是LLVM后端标准结构，所有Target都一样
-add_subdirectory(AsmParser)
-add_subdirectory(Disassembler)
-add_subdirectory(MCTargetDesc)
-add_subdirectory(TargetInfo)
-
-```
-
-+ 为了让你的Target实际运行起来，你需要实现一个TargetMachine的子类，例如`lib/Target/LoongArchTargetMachine.cpp`，（创建后如上一步所述，将cpp文件名添加到CMakeList的add_llvm_target中。
-+ 要让 LLVM 实际构建和链接新Target，需要使用 `cmake -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=Dummy`命令，这样就不需要将新添加的Target添加到所有Target的列表中。
 
 
 
-## TableGen语法
+# 第一章 新后端初始化与编译
 
-参考教程：https://blog.csdn.net/SiberiaBear/article/details/103539530
+​	本章的任务分为两大部分：
+
++ 注册新后端。即告诉LLVM”嘿！这儿有个新后端，请带上它一起“，需要修改的是公共部分的代码，均在`llvm/cmake,llvm/include,llvm/lib`下。几乎所有的后端注册的工作都是一样的，修改文件时只需检索”Mips“关键字所在的位置，紧跟着加上LoongArch的信息即可
++ 搭建目标描述框架。这部分是目标独有信息与其它后端独立，均在`llvm/lib/Target/LoongArch`目录下。为了让我们的新后端能够勉强通过编译，我们给它搭建最最基础的目标描述信息（.td文件）及编写CMakeLists。
 
 
 
-![Mips指令类型](https://pic1.zhimg.com/v2-436dbf8377614721f32f79543308eb48_r.jpg)
+## 注册新后端
+
+
+
+## 搭建目标描述框架
+
+
+
+### TableGen语法
+
+TableGen 语法参考教程：https://blog.csdn.net/SiberiaBear/article/details/103539530
 
 
 
@@ -108,31 +89,34 @@ build 命令：
 If you are having problems with limited memory and build time, please try building with ninja instead of make. Please consider configuring the following options with cmake:
 
 > - **-G Ninja** Setting this option will allow you to build with ninja instead of make. Building with ninja significantly improves your build time, especially with incremental builds, and improves your memory usage.
+>
 > - **-DLLVM_USE_LINKER** Setting this option to lld will significantly reduce linking time for LLVM executables on ELF-based platforms, such as Linux. If you are building LLVM for the first time and lld is not available to you as a binary package, then you may want to use the gold linker as a faster alternative to GNU ld.
-> - -DCMAKE_BUILD_TYPE Controls optimization level and debug information of the build. This setting can affect RAM and disk usage, see [CMAKE_BUILD_TYPE](https://llvm.org/docs/CMake.html#cmake-build-type) for more information.
-> - -DLLVM_ENABLE_ASSERTIONS This option defaults to ON for Debug builds and defaults to OFF for Release builds. As mentioned in the previous option, using the Release build type and enabling assertions may be a good alternative to using the Debug build type.
-> - -DLLVM_PARALLEL_LINK_JOBS Set this equal to number of jobs you wish to run simultaneously. This is similar to the -j option used with make, but only for link jobs. This option can only be used with ninja. You may wish to use a very low number of jobs, as this will greatly reduce the amount of memory used during the build process. If you have limited memory, you may wish to set this to 1.
+>
 > - **-DLLVM_TARGETS_TO_BUILD** Set this equal to the target you wish to build. You may wish to set this to X86; however, you will find a full list of targets within the llvm-project/llvm/lib/Target directory.
-> - -DLLVM_OPTIMIZED_TABLEGEN Set this to ON to generate a fully optimized tablegen during your build. This will significantly improve your build time. This is only useful if you are using the Debug build type.
-> - -DLLVM_ENABLE_PROJECTS Set this equal to the projects you wish to compile (e.g. clang, lld, etc.) If compiling more than one project, separate the items with a semicolon. Should you run into issues with the semicolon, try surrounding it with single quotes.
-> - -DLLVM_ENABLE_RUNTIMES Set this equal to the runtimes you wish to compile (e.g. libcxx, libcxxabi, etc.) If compiling more than one runtime, separate the items with a semicolon. Should you run into issues with the semicolon, try surrounding it with single quotes.
-> - -DCLANG_ENABLE_STATIC_ANALYZER Set this option to OFF if you do not require the clang static analyzer. This should improve your build time slightly.
-> - -DLLVM_USE_SPLIT_DWARF Consider setting this to ON if you require a debug build, as this will ease memory pressure on the linker. This will make linking much faster, as the binaries will not contain any of the debug information; however, this will generate the debug information in the form of a DWARF object file (with the extension .dwo). This only applies to host platforms using ELF, such as Linux.
+>
+>   
 
 + 使用lld加快编译 ``-DLLVM_USE_LINKER=lld`.`
+
 + 如果必须rebuild的话（更改过CMakeLists）可以用CCACHE : `-DLLVM_CCACHE_BUILD=ON`
+
 + 安装lld和CCache: `apt install lld` ， `apt install ccache`
+
 + 如果无需rebuild则增量编译就行了
 
-## Tips
++ 编译前半段可以使用`-j4`，后半段[20xx/27xx]涉及的库较大极有可能因为内存不足而宕机（大概率是在`Linking CXX executable bin/llvm-lto`这一步），此时输入Ctrl+C中断执行或者强制关机，使用`ninja -j1`，继续编译即可。最坏情况需要5个小时才能完成全部编译。
 
-+ 语法报错首先参考其它Target的代码格式！！
-+ 对不同版本LLVM的源代码更改不理解时（例如变量类型的改变），可以通过查询git 提交记录来查看开发者的解释
++ 在build/bin目录下执行`./llc --version `，即可获取当前llvm支持的所有后端，其中就可以看见我们新添加的loongarch 。注：如果指令llc前没加`./`,则调用的是Ubuntu环境中的llvm（如果你之前安装过Ubuntu提供的软件包的话）。
 
-```git
-	git blame 可以查询该文件的某一行的commit号（如4845531f）
-	git log -1 4845531f 可显示该commit的备注说明
-```
++ 依次执行下面两行指令，利用mips后端生成.bc文件，用loongarch后端生成.s文件
 
+  `clang -target mips-unknown-linux-gnu -c test.cpp -emit-llvm -o test.bc`
 
+  `./llc -march=cpu0 -relocation-model=pic -filetype=asm test.bc -o test.cpu0.s`
+
+​		报错：`Assertion ‘Target && "Could not allocate target machine!"’ failed`
+
+​		说明LLVM成功调用到了我们新添加的后端，只是我们还没编写target machine。
+
+​		本章的任务到此结束。
 
