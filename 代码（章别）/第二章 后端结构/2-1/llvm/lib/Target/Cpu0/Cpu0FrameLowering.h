@@ -15,9 +15,9 @@ namespace llvm {
         const Cpu0Subtarget &STI;
 
     public:
-        explicit Cpu0FrameLowering(const Cpu0Subtarget &sti, unsigned Alignment)
-                : TargetFrameLowering(StackGrowsDown, Alignment, 0, Alignment),
-                  STI(sti) { }
+        explicit  Cpu0FrameLowering(const Cpu0Subtarget &sti, unsigned Alignment)
+                : TargetFrameLowering(StackGrowsDown, Align(Alignment), 0, Align(Alignment)),
+                  STI(sti) {{ }
 
         static const Cpu0FrameLowering *create(const Cpu0Subtarget &ST);
 

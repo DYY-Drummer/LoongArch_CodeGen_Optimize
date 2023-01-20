@@ -120,3 +120,12 @@ If you are having problems with limited memory and build time, please try buildi
 
 ​		本章的任务到此结束。
 
+
+
+# 第二章后端结构
+
+
+
+## 2_1
+
+报错：` Assertion TmpAsmInfo && "MCAsmInfo not initialized. " "Make sure you include the correct TargetSelect.h" "and that InitializeAllTargetMCs() is being invoked!"'`
