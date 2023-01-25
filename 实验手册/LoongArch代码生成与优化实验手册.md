@@ -102,7 +102,7 @@ If you are having problems with limited memory and build time, please try buildi
 
 + 安装lld和CCache: `apt install lld` ， `apt install ccache`
 
-+ 如果无需rebuild则增量编译就行了
++ 如果无需rebuild则增量编译就行了（只改了C++文件直接执行ninja即可，会自动识别需要重新编译的文件)。
 
 + 编译前半段可以使用`-j4`，后半段[20xx/27xx]涉及的库较大极有可能因为内存不足而宕机（大概率是在`Linking CXX executable bin/llvm-lto`这一步），此时输入Ctrl+C中断执行或者强制关机，使用`ninja -j1`，继续编译即可。最坏情况需要5个小时才能完成全部编译。
 
@@ -129,3 +129,21 @@ If you are having problems with limited memory and build time, please try buildi
 ## 2_1
 
 报错：` Assertion TmpAsmInfo && "MCAsmInfo not initialized. " "Make sure you include the correct TargetSelect.h" "and that InitializeAllTargetMCs() is being invoked!"'`
+
+
+
+## 2_2
+
+feature 乱码的问题还没弄清，按照https://discourse.llvm.org/t/assertion-subtargetfeatures-hasflag-feature-feature-flags-should-start-with-or-failed/67939的方法用lldb调试一下看
+
+先安装：`sudo apt install lldb`
+
+调成功了就把llvm/lib/MC/MCSubtargetInfo.cpp:210的
+
+`FeatureBits = getFeatures(CPU, StringRef("+cpu032II"), ProcDesc, ProcFeatures);`
+
+里的死代码`StringRef("+cpu032II")`改回  `FS`
+
+
+
+报错：`./llc: warning: target does not support generation of this file type!`
