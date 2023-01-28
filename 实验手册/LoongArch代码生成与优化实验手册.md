@@ -147,3 +147,80 @@ feature 乱码的问题还没弄清，按照https://discourse.llvm.org/t/asserti
 
 
 报错：`./llc: warning: target does not support generation of this file type!`
+
+
+
+## 2_3
+
+2_3重编译必须要手动执行ninja clean，否则会漏识别新更改。（好像是更改过.td文件，ninja识别不出来，就不会生成新的.inc文件。而我们的.cpp文件需要引用.inc文件里生成的变量。）
+
+
+
+报错：`LLVM ERROR: Cannot select: t6: ch = Cpu0ISD::Ret t4, Register:i32 $lr
+  t5: i32 = Register $lr`
+`In function: main`
+
+
+
+## 2_4
+
+使用O2级别的优化指令，可以生成只留下一个`ret`的简单lllvm IR程序用于检验我们的成果。
+
++ 生成可查看的ll文件：
+
+​	`clang -O2 -target mips-unknown-linux-gnu -S ch2.c -emit-llvm -o ch2.ll`
+
+​	生成.bc文件：
+
+​	`clang -O2 -target mips-unknown-linux-gnu -c ch2.c -emit-llvm -o ch2.bc`
+
+
+
++ 使用llc指令，不指定输出路径可以直接输出到终端显示
+
+​	`build/bin/llc -march=cpu0 -relocation-model=pic -filetype=asm ch2.bc -o -`
+
+​	能看到，已经正常生成了 `ret $lr` 指令。也能看到返回值 0 通过 `addiu $2, $zero, 0` 这条指令	放到了寄存器 `$2` 中，`$2` 就是 `%V0`，我们在 Cpu0RegisterInfo.td 中做过定义。 
+
+​	通过指定 `-print-before-all` 和 `-print-after-all` 参数到 llc，可以打印出 DAG 指令选择前后	的状态：
+
+​	`build/bin/llc -march=cpu0 -relocation-model=pic -filetype=asm -print-before-all `
+
+​	`-print-after-all ch2.bc -o -`
+
+
+
+信息如:
+
+```llvm
+bb.0 (%ir-block.0):
+  $v0 = ADDiu $zero, 0
+  RET $lr
+```
+
+
+
+## 2_5
+
++ prologue 和 epilogue 是函数调用开始时和结束时所作的准备工作，主要和创建和清理堆栈有关。
+
++ spill
+
+  当寄存器数目不足以分配某些变量时，就必须将这些变量溢出（临时存入）到内存中，该过程成为spill。
+
++ 由于指令定长（32bit），所以留给立即数imm的位域最多为16-bit，超过16-bit的立即数需要发射多余一条的指令来处理计算，转换成`寄存器＋寄存器`的形式以容纳32-bit数。如结合lui（*load upper immediate*，加载高16位）和ori（*or immediate*，加载低16位）来组合成32-bit的立即数。
+
++ 用ch3_largeframe.cpp测试大栈
+
++ 输出：
+
+	# %bb.0:
+	        lui	$1, 36864
+	        addiu	$1, $1, 32760
+	        addu	$sp, $sp, $1
+	        addiu	$2, $zero, 0
+	        st	$2, 1879015428($sp)
+	        lui	$1, 28672
+	        addiu	$1, $1, -32760
+	        addu	$sp, $sp, $1
+	        ret	$lr
