@@ -4,6 +4,12 @@
 
 ## 写在前面
 
+​	LLVM项目开源历史悠久，但是网上却少有新手友好的开发教程，大多只停留在理论阶段，分析LLVM整体架构和工作原理。一是因为LLVM项目本身十分庞大，又属于底层开发，项目代码错综复杂且时常更改，编写一套完整的免费开发教程所需的精力和时间对于个人来说太过苛刻。二是因为LLVM后端代码的贡献者大多为各指令集架构的公司或LLVM官方人员，就算是为了学习编译器技术，也鲜少有业余程序员会需要从头到尾开发一个新的LLVM后端。
+
+​	虽然LLVM官方也提供了标准的后端开发说明手册，但是其过于晦涩难懂且忽略了太多细节，不适合新手作为自己开发第一个后端的参照，用作开发中关键词查询手册更合适。
+
+​	本文将基于笔者开发LoongArch指令集的LLVM后端项目的经验历程，从代码编写的角度，一步步讲解如何开发一个具有基本功能的LLVM后端。
+
 ​	笔者认为，LLVM 后端开发的精髓在于“抄袭与学习”。LLVM官方开发手册中也建议“通过复制其它后端的代码来开发新的后端会是较好的选择”。LLVM中大量使用TableGen语言和内置的接口，在开发过程中对于陌生的格式和定义保持“知其然而不知其所以然”的态度即可，将注意力更多地放在新后端的设计上，对于LLVM规范点到即止，将会有助于我们的开发效率。
 
 ​	特别地，LoongArch与Mips的相似度极高，可以重点参考Mips的代码。在配置环境文件时，可以使用`Ctrl+F`搜索”Mips“关键词，在相同位置依葫芦画瓢即可。
@@ -224,3 +230,53 @@ bb.0 (%ir-block.0):
 	        addiu	$1, $1, -32760
 	        addu	$sp, $sp, $1
 	        ret	$lr
+
++ 查看pass的执行流程`./llc -march=cpu0 -relocation-model=pic -filetype=asm ch2.bc -debug-pass=Structure -o -`，更多信息在CodeGen/Passes.h中
+
+```llvm
+Target Library Information
+Target Pass Configuration
+Machine Module Information
+Target Transform Information
+Type-Based Alias Analysis
+Scoped NoAlias Alias Analysis
+Assumption Cache Tracker
+Profile summary info
+Create Garbage Collector Module Metadata
+Machine Branch Probability Analysis
+  ModulePass Manager
+    Pre-ISel Intrinsic Lowering
+    FunctionPass Manager
+    ...
+    Rewrite Symbols
+    FunctionPass Manager
+      ...
+      CPU0 DAG to DAG Pattern Instruction Selection
+      ...
+      Optimize machine instruction PHIs
+      ...
+      Local Stack Slot Allocation
+      Remove dead machine instructions
+      ...
+      Peephole Optimizations
+      Remove dead machine instructions
+      ...
+      Machine Instruction Scheduler
+      ...
+      Greedy Register Allocator
+      ...
+      Prologue/Epilogue Insertion & Frame Finalization
+      ...
+      Cpu0 Assmebly Printer
+      ...
+
+```
+
++ 可用如下指令分别统计所有.cpp,.td,.h,.txt文件的行数
+
+  ```
+  wc -l `find path -name "*.cpp"`|tail -n1
+  ```
+
+  LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注释）
+
