@@ -1,34 +1,28 @@
-//===- Cpu0InstrInfo.td - Target Description for Cpu0 Target -*- tablegen -*-=//
-//
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
+//===- LoongArchInstrInfo.td - Target Description for LoongArch Target -*- tablegen -*-=//
 //===----------------------------------------------------------------------===//
 //
-// This file contains the Cpu0 implementation of the TargetInstrInfo class.
+// This file contains the LoongArch implementation of the TargetInstrInfo class.
 //
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
-// Cpu0 profiles and nodes
+// LoongArch profiles and nodes
 //===----------------------------------------------------------------------===//
 
-def SDT_Cpu0Ret          : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
+def SDT_LoongArchRet          : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
 
 // Return
-def Cpu0Ret : SDNode<"Cpu0ISD::Ret", SDTNone,
+def LoongArchRet : SDNode<"LoongArchISD::Ret", SDTNone,
                      [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
 //===----------------------------------------------------------------------===//
 // Instruction format superclass
 //===----------------------------------------------------------------------===//
 
-include "Cpu0InstrFormats.td"
+include "LoongArchInstrFormats.td"
 
 //===----------------------------------------------------------------------===//
-// Cpu0 Operand, Complex Patterns and Transformations Definitions.
+// LoongArch Operand, Complex Patterns and Transformations Definitions.
 //===----------------------------------------------------------------------===//
 // Instruction operand types
 
@@ -36,19 +30,24 @@ include "Cpu0InstrFormats.td"
 def simm16      : Operand<i32> {
   let DecoderMethod= "DecodeSimm16";
 }
+def simm12      : Operand<i32> {
+let DecoderMethod= "DecodeSimm12";
+}
 
 // Address operand
 def mem : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
-  let MIOperandInfo = (ops GPROut, simm16);
+//操作符为ops的dag值，它用于指定多个子操作数，有子操作数的操作数称为复合操作数
+  let MIOperandInfo = (ops GPROut, simm12);
   let EncoderMethod = "getMemEncoding";
 }
 
-// Node immediate fits as 16-bit sign extended on target immediate.
-// e.g. addi, andi
+// Node immediate fits as N-bit sign extended on target immediate.
+// e.g. addi.w
 def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
+def immSExt12  : PatLeaf<(imm), [{ return isInt<12>(N->getSExtValue()); }]>;
 
-// Cpu0 Address Mode! SDNode frameindex could possibily be a match
+// LoongArch Address Mode! SDNode frameindex could possibily be a match
 // since load and store instructions from stack used it.
 def addr : 
   ComplexPattern<iPTR, 2, "SelectAddr", [frameindex], [SDNPWantParent]>;
@@ -78,70 +77,74 @@ def store_a         : AlignedStore<store>;
 //===----------------------------------------------------------------------===//
 
 // Arithmetic and logical instructions with 2 register operands.
-class ArithLogicI<bits<8> op, string instr_asm, SDNode OpNode,
+class ALU_2RI12<bits<10> op, string instr_asm, SDNode OpNode,
                   Operand Od, PatLeaf imm_type, RegisterClass RC> :
-  FL<op, (outs GPROut:$ra), (ins RC:$rb, Od:$imm16),
-     !strconcat(instr_asm, "\t$ra, $rb, $imm16"),
-     [(set GPROut:$ra, (OpNode RC:$rb, imm_type:$imm16))], IIAlu> {
+    Fmt2RI12<op, (outs GPROut:$rd), (ins RC:$rj, Od:$imm12),
+     !strconcat(instr_asm, "\t$rd, $rj, $imm12"),
+     [(set GPROut:$rd, (OpNode RC:$rj, imm_type:$imm12))], IIAlu> {
   let isReMaterializable = 1;
 }
 
-class FMem<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
-          InstrItinClass itin>: FL<op, outs, ins, asmstr, pattern, itin> {
-  bits<20> addr;
-  let Inst{19-16} = addr{19-16};
-  let Inst{15-0}  = addr{15-0};
+class FMem<bits<10> op, dag outs, dag ins, string asmstr, list<dag> pattern,
+          InstrItinClass itin>: Fmt2RI12<op, outs, ins, asmstr, pattern, itin> {
+  bits<17> addr; //addr include 5-bit rj and 12-bit simm
+  let Inst{9-5} = addr{16-12};   //rj
+  let Inst{21-10}  = addr{11-0}; //I12
   let DecoderMethod = "DecodeMem";
 }
 
 // Memory Load/Store
+
 let canFoldAsLoad = 1 in
-class LoadM<bits<8> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
-            Operand MemOpnd, bit Pseudo>:
-  FMem<op, (outs RC:$ra), (ins MemOpnd:$addr),
-     !strconcat(instr_asm, "\t$ra, $addr"),
-     [(set RC:$ra, (OpNode addr:$addr))], IILoad> {
-  let isPseudo = Pseudo;
+class LOAD_2RI12<bits<10> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
+                 Operand MemOpnd, bit Pseudo>:
+    FMem<op, (outs RC:$rd), (ins MemOpnd:$addr),
+        !strconcat(instr_asm, "\t$rd, $addr"),
+        [(set RC:$rd, (OpNode addr:$addr))], IILoad>{
+    let isPseudo = Pseudo;
 }
 
-class StoreM<bits<8> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
+
+class STORE_2RI12<bits<10> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
              Operand MemOpnd, bit Pseudo>:
-  FMem<op, (outs), (ins RC:$ra, MemOpnd:$addr),
-     !strconcat(instr_asm, "\t$ra, $addr"),
-     [(OpNode RC:$ra, addr:$addr)], IIStore> {
+  FMem<op, (outs), (ins RC:$rd, MemOpnd:$addr),
+     !strconcat(instr_asm, "\t$rd, $addr"),
+     [(OpNode RC:$rd, addr:$addr)], IIStore> {
   let isPseudo = Pseudo;
 }
 
 //@ 32-bit load.
-class LoadM32<bits<8> op, string instr_asm, PatFrag OpNode,
+class LoadM32<bits<10> op, string instr_asm, PatFrag OpNode,
                    bit Pseudo = 0>
-  : LoadM<op, instr_asm, OpNode, GPROut, mem, Pseudo> {
+  : LOAD_2RI12<op, instr_asm, OpNode, GPROut, mem, Pseudo> {
 }
 
 // 32-bit store.
-class StoreM32<bits<8> op, string instr_asm, PatFrag OpNode,
+class StoreM32<bits<10> op, string instr_asm, PatFrag OpNode,
                     bit Pseudo = 0>
-  : StoreM<op, instr_asm, OpNode, GPROut, mem, Pseudo> {
+  : STORE_2RI12<op, instr_asm, OpNode, GPROut, mem, Pseudo> {
 }
 
 //@JumpFR {
 let isBranch=1, isTerminator=1, isBarrier=1, imm16=0, hasDelaySlot = 1,
     isIndirectBranch = 1 in
-class JumpFR<bits<8> op, string instr_asm, RegisterClass RC>:
-  FL<op, (outs), (ins RC:$ra),
-     !strconcat(instr_asm, "\t$ra"), [(brind RC:$ra)], IIBranch> {
-  let rb = 0;
+class JumpFR<bits<6> op, string instr_asm, RegisterClass RC>:
+    Fmt2RI16<op, (outs), (ins RC:$rj),
+     !strconcat(instr_asm, "\t$rj"), [(brind RC:$rj)], IIBranch> {
+  let rd = 0;
   let imm16 = 0;
 }
 //@JumpFR }
 
-// Return instruction
-class RetBase<RegisterClass RC>: JumpFR<0x3c, "ret", RC> {
-  let isReturn = 1;
-  let isCodeGenOnly = 1;
-  let hasCtrlDep = 1;
-  let hasExtraSrcRegAllocReq = 1;
+/// Return instruction
+class RetBase<RegisterClass RC>
+        : JumpFR<0b010011, "ret", RC>{
+let isReturn = 1;
+let isCodeGenOnly = 1;
+let hasCtrlDep = 1;
+let hasExtraSrcRegAllocReq = 1;
 }
+
 
   
 //===----------------------------------------------------------------------===//
@@ -149,35 +152,42 @@ class RetBase<RegisterClass RC>: JumpFR<0x3c, "ret", RC> {
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
-// Cpu0 Instructions
+// LoongArch Instructions
 //===----------------------------------------------------------------------===//
 
 /// Load and Store Instructions
 ///  aligned
-def LD     : LoadM32<0x01,  "ld",  load_a>;
-def ST     : StoreM32<0x02, "st",  store_a>;
+def LD_W     : LoadM32<0b0010100010,  "ld.w",  load_a>;  //load a sign-extended word from memory to $rd
+def ST_W     : StoreM32<0b0010100110, "st.w",  store_a>; //store bit [31:0] of $rd to memory
 
 /// Arithmetic Instructions (ALU Immediate)
 // IR "add" defined in include/llvm/Target/TargetSelectionDAG.td, line 315 (def add).
-def ADDiu   : ArithLogicI<0x09, "addiu", add, simm16, immSExt16, CPURegs>;
+def ADDI_W   : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12, GPR>;
 
 /// Arithmetic Instructions (3-Operand, R-Type)
 
 /// Shift Instructions
 
-def JR      : JumpFR<0x3c, "jr", GPROut>;
+def JIRL      : JumpFR<0b010011, "jirl", GPROut>;
+
+
 
 def RET     : RetBase<GPROut>;
 
-/// No operation
-let addr=0 in
-  def NOP   : FJ<0, (outs), (ins), "nop", [], IIAlu>;
+/// No operation instruction
+let imm26=0 in
+  def NOP   : FmtI26<0, (outs), (ins), "nop", [], IIAlu>;
+
+//use JIRL ZERO, RA, 0 to replace IR instruction "ret", since LoongArch doesn't have "ret" like Mips
+let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
+  def PseudoRet  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>;
+//                  ,PseudoInstExpansion<(JIRL ZERO, RA, 0)>;
 
 //===----------------------------------------------------------------------===//
 //  Arbitrary patterns that map to one or more instructions
 //===----------------------------------------------------------------------===//
 
 // Small immediates
-def : Pat<(i32 immSExt16:$in),
-          (ADDiu ZERO, imm:$in)>;
+def : Pat<(i32 immSExt12:$in),
+          (ADDI_W ZERO, imm:$in)>;
 

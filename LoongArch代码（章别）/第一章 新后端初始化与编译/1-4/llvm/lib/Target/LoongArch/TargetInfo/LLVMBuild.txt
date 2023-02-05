@@ -1,12 +1,5 @@
 ;===-- LLVMBuild.txt - LLVMBuild.txt of TargetInfo --------------*- Conf -*-===;
 ;
-;                    The LLVM Compiler Infrastructure
-;
-; This file is distributed under the University of Illinois Open Source
-; License. See LICENSE.TXT for details.
-;
-;===------------------------------------------------------------------------===;
-;
 ; This is an LLVMBuild description file for the components in this subdirectory.
 ;
 ; For more information on the LLVMBuild system, please see:
@@ -17,7 +10,7 @@
 
 [component_0]
 type = Library
-name = Cpu0Info
-parent = Cpu0
+name = LoongArchInfo
+parent = LoongArch
 required_libraries = Support
-add_to_library_groups = Cpu0
+add_to_library_groups = LoongArch

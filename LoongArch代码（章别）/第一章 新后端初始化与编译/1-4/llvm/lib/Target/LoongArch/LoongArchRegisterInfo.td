@@ -77,7 +77,7 @@ def GPR : RegisterClass<"LoongArch", [i32], 32, (add
   // Static Registers (fp, s0...s8)
   FP, S0, S1, S2, S3, S4, S5, S6, S7, S8,
   // Specials (zero, ra, tp, sp)
-  ZERO, RA, TP, SP
+  ZERO, RA, TP, SP,
   // Reserved(Non-allocatable)
   R21
   )>;

@@ -48,6 +48,8 @@ LoongArch的ELF psABI文档：
 
 ## Tips
 
++ 虚拟机的虚拟内存至少需要开到8G，编译时最大并行线程数不要超过4，否则很容易因内存不足而宕机，这时请强制退出然后将最大并行数设为1重试。存储空间至少分配100G，LLVM项目编译后可达到30G。
+
 + LoongArch与Mips的相似度极高，可以重点参考Mips的代码。在配置环境文件时，可以使用`Ctrl+F`搜索”Mips“关键词，在相同位置依葫芦画瓢即可。
 
 + 遇到Bug时，根据报错文件参考其它Target的代码进行修改。无法解决可以上Github的LLVM-project仓库（https://github.com/llvm/llvm-project/issues/）中提交issue，或者上LLVM官方社区论坛（https://discourse.llvm.org/latest）发布问题，一般24h之内就会有人回复。当然，建议在提问之前先通过关键字搜索是否有历史相同问题，大概率存在。
@@ -57,7 +59,7 @@ LoongArch的ELF psABI文档：
   	git blame 可以查询该文件的某一行的commit号（如4845531f）
   	git log -1 4845531f 可显示该commit的备注说明
 
-  
++ 本文存在大量以缩略词命名的代码，为方便理解，请查看附录中的缩略词索引.md
 
 
 
@@ -314,15 +316,94 @@ def ADDI_W : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12>;
 
 ​		从本节开始，我们将正式进行代码编写工作，为了读者能够更好理解，请配合代码仓库中的完整代码阅读，代码仓库按照章节划分新增/更改的代码内容，本文只会贴出逻辑说明所必要的部分代码。
 
-​		一个新后端的编写首先应该从让LLVM project 知道这个新后端的存在开始，即告诉LLVM“嘿！我也是一个需要被编译的后端，我在。。。”，需要注册的信息包括新后端机器的ID和重定位记录。该部分所修改的是所有后端共用的公共文件，只需要模仿别的后端的格式，在相同的地方添加上LoongArch的信息即可。
+​		一个新后端的编写首先应该从让LLVM project 知道这个新后端的存在开始，即告诉LLVM“嘿！我也是一个需要被编译的后端，我在。。。”，需要注册的信息包括新后端机器的ID和重定位记录。该部分所修改的是所有后端共用的公共文件，只需要模仿别的后端的格式，在相同的地方添加上LoongArch的信息即可。至于为什么修改这些文件，请暂时只当做一种LLVM项目架构规范理解。
+
++ **llvm/CMakeLists.txt**
+
+  将LoongArch加入LLVM需要编译的Target列表
+
++  **llvm/cmake/config-ix.cmake**
+
++ **llvm/include/llvm/ADT/Triple.h**
+
+  **llvm/lib/Support/Triple.cpp**
+
+​		Triple意为三元组，由于典型的指令通常由“操作符 目的操作数 源操作数”三个域组成，所以这个命名习惯被保留了下来。该类用于为目标架构定义特殊行为的配置名称，通俗的讲，就是为不同目标架构的不同版本划分命名域，如LoongArch的不同版本：loongarch32和loongarch64
+
++ **llvm/include/llvm/BinaryFormat/ELF.h**
+
+  **llvm/include/llvm/BinaryFormat/ELFRelocs/LoongArch.def**（新增）
+
+  **llvm/include/llvm/Object/ELFObjectFile.h**
+
+  **llvm/lib/Object/ELF.cpp**
+
+  ELF (Executable and Linkable Format)是可执行程序、目标代码(object file)、共享库的通用文件格式。文件中定义了LoongArch的ELF文件支持信息。
+
++ **llvm/lib/MC/MCSubtargetInfo.cpp**
+
+  Subtarget是Target基于不同CPU架构的细分（例如32位和64位的），编译时可以使用`-mcpu=` 和 `-mattr=`命令行选项指定某一个Subtarget。
 
 
 
 ## 1.4 搭建目标描述框架
 
+​		如1.2节所述，LLVM使用目标描述文件（.td文件）来描述各种特定于目标的信息，这些文件全部存放在`llvm/lib/Target/目标名`下。本节将专注于为LoongArch编写.td文件，实现最基本的寄存器集、指令集和指令模式匹配功能的描述框架，让新后端的编译能够最低限度地通过。编译时，这些.td文件会被TableGen工具转换成C++格式的.inc文件，在.td文件定义的类也会被转换为C++类的形式，从而其它.CPP文件在引用了生成的.inc文件后，便能使用这些类。
+
++ **LoongArch.td**
+
+  所有.td文件的统领，相当于最顶层的头文件，include了所有Target Machine 相关的描述文件，同时也是Cmake编译的入口。
+
++ **LoongArchRegisterInfo.td**
+
+  包含了所有LoongArch寄存器的定义。如下代码所示，.td文件主要有两大关键字组成：**class**和**def**。
+
+  + class可以类比为C++的类，`class A<...> : B<...>`代表定义一个类A，并继承类B，A拥有B及B的所有父类的成员变量。**let**为赋值关键字，为父类中已定义的变量再次赋值，若没有let，则说明该变量是此处新定义的。
+
+  + def 语句生成一条LLVM record，相当于class的一个对象，可以同时绑定多个class。
+
+    `def ZERO : LoongArchGPRReg<0,  "zero">, DwarfRegNum<[0]>;`
+
+    表示一条名为ZERO的记录，他绑定了LoongArchGPRReg和DwarfRegNum类。双尖括号内为类的构造传参，参数类型、顺序和数量与类的定义相匹配。特别地，如果类的构造参数在定义时就赋予了初值，那么在定义def时可以省略该参数，此时def中的参数数量小于类定义的参数数量，但是省略的参数必须是参数序列中尾部的参数（否则编译器无法确定哪个参数被省略）。例如类定义`class A<string id, string name="">`中，name具有初始值（空串），定义时就可以省略name：`def subA : A<"My id">;`。
+
+  + 
+
+```c++
+
+class LoongArchReg<bits<16> Enc, string n> : Register<n> {
+  let HWEncoding = Enc;
+  ...
+}
+// LoongArch CPU Registers
+class LoongArchGPRReg<bits<16> Enc, string n> : LoongArchReg<Enc, n>;
+// Co-processor Registers
+class LoongArchCoReg<bits<16> Enc, string n> : LoongArchReg<Enc, n>;
+
+//===----------------------------------------------------------------------===//
+//@Registers
+//===----------------------------------------------------------------------===//
+let Namespace = "LoongArch" in {
+  def ZERO : LoongArchGPRReg<0,  "zero">, DwarfRegNum<[0]>;
+  def RA   : LoongArchGPRReg<1,  "ra">,    DwarfRegNum<[1]>;
+  ...
+  def PC   : LoongArchCoReg<0, "pc">,  DwarfRegNum<[40]>;
+}
+
+//===----------------------------------------------------------------------===//
+//@Register Classes
+//===----------------------------------------------------------------------===//
+def GPR : RegisterClass<"LoongArch", [i32], 32, (add
+  ...
+  )>;
+
+def CoRegs : RegisterClass<"LoongArch", [i32], 32, (add PC)>;
+
+def GPROut : RegisterClass<"LoongArch", [i32], 32, (add (sub GPR, R21))>;
+```
 
 
 
++ InstrFormat.td和schedule.td中的InstrItinClass类 Itineraries是用来优化处理器指令调度的手段，例如读取或写入数据的时机，资源分配等，目前LoongArch还没有开发这部分处理器功能，此处只留下了一个框架，LLVM会选择缺省的调度方案。
 
 
 
@@ -386,7 +467,7 @@ If you are having problems with limited memory and build time, please try buildi
 
 
 
-# 第二章后端结构
+# 第二章 后端结构
 
 
 

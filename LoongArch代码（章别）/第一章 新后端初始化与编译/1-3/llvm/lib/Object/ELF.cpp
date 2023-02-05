@@ -22,7 +22,7 @@ using namespace object;
 StringRef llvm::object::getELFRelocationTypeName(uint32_t Machine,
                                                  uint32_t Type) {
   switch (Machine) {
-  case ELF::EM_loongarch:
+  case ELF::EM_LOONGARCH:
     switch (Type) {
 #include "llvm/BinaryFormat/ELFRelocs/LoongArch.def"
     default:

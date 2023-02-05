@@ -1,17 +1,10 @@
-//===-- Cpu0MCTargetDesc.cpp - Cpu0 Target Descriptions -------------------===//
+//===-- LoongArchMCTargetDesc.cpp - LoongArch Target Descriptions -------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
-// This file provides Cpu0 specific target descriptions.
+// This file provides LoongArch specific target descriptions.
 //
 //===----------------------------------------------------------------------===//
 
-#include "Cpu0MCTargetDesc.h"
+#include "LoongArchMCTargetDesc.h"
 #include "llvm/MC/MachineLocation.h"
 #include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCInstrAnalysis.h"
@@ -28,16 +21,16 @@
 using namespace llvm;
 
 #define GET_INSTRINFO_MC_DESC
-#include "Cpu0GenInstrInfo.inc"
+#include "LoongArchGenInstrInfo.inc"
 
 #define GET_SUBTARGETINFO_MC_DESC
-#include "Cpu0GenSubtargetInfo.inc"
+#include "LoongArchGenSubtargetInfo.inc"
 
 #define GET_REGINFO_MC_DESC
-#include "Cpu0GenRegisterInfo.inc"
+#include "LoongArchGenRegisterInfo.inc"
 
 //@2 {
-extern "C" void LLVMInitializeCpu0TargetMC() {
+extern "C" void LLVMInitializeLoongArchTargetMC() {
 
 }
 //@2 }
