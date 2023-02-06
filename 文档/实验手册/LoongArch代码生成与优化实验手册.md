@@ -296,7 +296,7 @@ class ALU_2RI12<bits<10> op, string instrAsm, SDNode opNode,
 def ADDI_W : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12>;
 ```
 
-​		上面的代码展示了IR节点`add`和机器指令节点`ADDI_W`之间的模式匹配的方法。`(outs GPR:$rd)`和`(ins GPR:$rj, od:$imm12)`两个DAG参数指明，该指令具有三个操作数，其中作为输出的操作数是GPR寄存器集合中的一个寄存器，作为输入的操作数是GPR寄存器集合中的一个寄存器和一个12位立即数。注意，代码中的`$rj $rd`是虚拟寄存器名，最终会映射到**Fmt2RI12**中定义的操作数变量域。
+​		上面的代码展示了IR节点`add`(定义在llvm/include/llvm/Target/TargetSelectionDAG.td)和机器指令节点`ADDI_W`之间的模式匹配的方法。`(outs GPR:$rd)`和`(ins GPR:$rj, od:$imm12)`两个DAG参数指明，该指令具有三个操作数，其中作为输出的操作数是GPR寄存器集合中的一个寄存器，作为输入的操作数是GPR寄存器集合中的一个寄存器和一个12位立即数。注意，代码中的`$rj $rd`是虚拟寄存器名，最终会映射到**Fmt2RI12**中定义的操作数变量域。
 
 ​		以IR节点”`add %2, 0`”为例，在指令选择阶段，它与**ALU_2RI12**中的匹配规则`[(set GPR:$rd, (opNode GPR:$rj, immType:$imm12))]`相匹配，定义中指定了ADDI_W的汇编名称为"addi.w"，指令于是转换为`addi.w %2, 0`。到了寄存器分配阶段，虚拟寄存器`%2`被分配给物理寄存器`$a0`，于是指令又被转换为`addi.w $a0, 0`。定义中还指定了addi.w的指令编码0b0000001010，12位立即数格式的匹配规则immSExt12。上述模式匹配的图解如下：
 
@@ -358,42 +358,45 @@ def ADDI_W : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12>;
 
   包含了所有LoongArch寄存器的定义。如下代码所示，.td文件主要有两大关键字组成：**class**和**def**。
 
-  + class可以类比为C++的类，`class A<...> : B<...>`代表定义一个类A，并继承类B，A拥有B及B的所有父类的成员变量。**let**为赋值关键字，为父类中已定义的变量再次赋值，若没有let，则说明该变量是此处新定义的。
+  + class可以类比为C++的类，`class A<...> : B<...>`代表定义一个类A，并继承类B，A拥有B及B的所有父类的成员变量。**let**为赋值关键字，为父类中已定义的变量再次赋值，若没有let，则说明该变量是此处新定义的。可以使用`let ... in { ... }`为多条记录的同一个变量批量赋值。
 
-  + def 语句生成一条LLVM record，相当于class的一个对象，可以同时绑定多个class。
+  + def 语句生成一条LLVM record（记录），相当于class的一个特定示例，可以同时实现多个class。
 
     `def ZERO : LoongArchGPRReg<0,  "zero">, DwarfRegNum<[0]>;`
 
-    表示一条名为ZERO的记录，他绑定了LoongArchGPRReg和DwarfRegNum类。双尖括号内为类的构造传参，参数类型、顺序和数量与类的定义相匹配。特别地，如果类的构造参数在定义时就赋予了初值，那么在定义def时可以省略该参数，此时def中的参数数量小于类定义的参数数量，但是省略的参数必须是参数序列中尾部的参数（否则编译器无法确定哪个参数被省略）。例如类定义`class A<string id, string name="">`中，name具有初始值（空串），定义时就可以省略name：`def subA : A<"My id">;`。
+    表示一条名为ZERO的记录，他实现了LoongArchGPRReg和DwarfRegNum类。双尖括号内为类的构造传参，参数类型、顺序和数量与类的定义相匹配。特别地，如果类的构造参数在定义时就赋予了初值，那么在定义def时可以省略该参数，此时def中的参数数量小于类定义的参数数量，但是省略的参数必须是参数序列中尾部的参数（否则编译器无法确定哪个参数被省略）。例如类定义`class A<string id, string name="">`中，name具有初始值（空串），定义时就可以省略name：`def subA : A<"My id">;`。
 
-  + 
+  + 可以看到，该文件定义了所有寄存器的基类LoongArchReg，并进一步分为通用寄存器、辅助寄存器和输出寄存器。每个寄存器拥有四个身份标识：目标特定的硬件编码Enc，汇编输出名n，寄存器别名AltNames和DwarfRegNum。DwarfRegNum提供从LLVM 寄存器枚举变量到被gcc、gdb等Debug 信息输出器所使用的寄存器编码的映射。
+  
+    回顾LoongArch指令格式，指令中每个寄存器引用占据5-bit，所以可分配的数值范围为0~31。一旦将0 ~ 31 分配给HWEncoding，TableGen就可以自动获取并设置这个编号。GPROut 包含了所有R21的所有GPR，因此在寄存器分配阶段，R21就不会被分配为输出寄存器。查看编译后生成的LoongArchGenRegisterInfo.inc文件可以看到TableGen打包的寄存器信息。
+  
+    此处体现了划分命名域的一个优势，由于指定了记录的Namespace，所以不同Target内的寄存器都可以从零开始编号而不会被混淆，例如在C++文件中可以通过`LoongArch::ZERO`来引用LoongArch命名空间中的ZERO寄存器。
 
 ```c++
 
-class LoongArchReg<bits<16> Enc, string n> : Register<n> {
+class LoongArchReg<bits<16> Enc, string n, list<string> alt = []> : Register<n> {
   let HWEncoding = Enc;
-  ...
+  let AltNames = alt;
+  let Namespace = "LoongArch";
 }
 // LoongArch CPU Registers
-class LoongArchGPRReg<bits<16> Enc, string n> : LoongArchReg<Enc, n>;
+class LoongArchGPRReg<bits<16> Enc, string n， list<string> alt = []> : LoongArchReg<Enc, n>;
 // Co-processor Registers
-class LoongArchCoReg<bits<16> Enc, string n> : LoongArchReg<Enc, n>;
+class LoongArchCoReg<bits<16> Enc, string n, list<string> alt = []> : LoongArchReg<Enc, n>;
 
 //===----------------------------------------------------------------------===//
 //@Registers
 //===----------------------------------------------------------------------===//
 let Namespace = "LoongArch" in {
-  def ZERO : LoongArchGPRReg<0,  "zero">, DwarfRegNum<[0]>;
-  def RA   : LoongArchGPRReg<1,  "ra">,    DwarfRegNum<[1]>;
+  def ZERO : LoongArchGPRReg<0, "r0", ["zero"]>, DwarfRegNum<[0]>;
   ...
-  def PC   : LoongArchCoReg<0, "pc">,  DwarfRegNum<[40]>;
 }
 
 //===----------------------------------------------------------------------===//
 //@Register Classes
 //===----------------------------------------------------------------------===//
 def GPR : RegisterClass<"LoongArch", [i32], 32, (add
-  ...
+  A0, A1, A2, ...
   )>;
 
 def CoRegs : RegisterClass<"LoongArch", [i32], 32, (add PC)>;
@@ -401,11 +404,40 @@ def CoRegs : RegisterClass<"LoongArch", [i32], 32, (add PC)>;
 def GPROut : RegisterClass<"LoongArch", [i32], 32, (add (sub GPR, R21))>;
 ```
 
++ **LoongArchInstrFormats.td**
 
+​		按照1.1.3节中的指令格式分类定义了所有指令格式，描述了LoongArch指令集的公共属性，最顶层的LAInst类继承自LLVM内置的Instruction类，以2RI16指令格式为例：
 
-+ InstrFormat.td和schedule.td中的InstrItinClass类 Itineraries是用来优化处理器指令调度的手段，例如读取或写入数据的时机，资源分配等，目前LoongArch还没有开发这部分处理器功能，此处只留下了一个框架，LLVM会选择缺省的调度方案。
+```c++
+class Fmt2RI16<bits<6> op, dag outs, dag ins, string asmstr,
+        list<dag> pattern, InstrItinClass itin>
+: LAInst<outs, ins, asmstr, pattern, itin> {
+bits<16> imm16;
+bits<5> rj;
+bits<5> rd;
 
+let Inst{31-26} = op;
+let Inst{25-10} = imm16;
+let Inst{9-5} = rj;
+let Inst{4-0} = rd;
+}
+```
 
+​		Fmt2RI16的参数中，op为指令的二进制编码，outs，ins为匹配的DAG节点的输出和输入，asmstr为汇编输出字符串，pattern为模式匹配的Dag节点。itin为指令调度模式，是用来优化处理器指令调度的手段，例如读取或写入数据的时机，资源分配等，目前LoongArch还没有开发这部分处理器功能，此处只留下了一个框架，LLVM会选择缺省的调度方案。Inst 为32位指令域，根据2RI16的指令格式将指令域中各位分配给指令编码、两个寄存器和一个立即数。
+
++ **LoongArchSchedule.td**
+
+  定义了各种指令调度模式
+
++ **LoongArchInstrInfo.td**
+
+​		具体到某一条机器指令模式的实现，继承自LoongArchInstrFormats.td中的指令类型，还定义了立即数的格式，内存操作数和地址等操作数格式。目前只定义了内存操作指令store和load、一个加法指令和一个返回指令，以支持最简单的C语言程序（main函数中只有一个return 0）。关于这部分代码的指令模式匹配的具体解释请参照1.2.4节，此处不再赘述。
+
+​		需要特别提出的是，指令中的isPseudo参数用来指明该指令是否是一个伪指令。伪指令代表目标机器架构中并不存在这么一个指令，只是为了统一格式，提高代码可读性的一种手段，通常会结合伪指令扩展（PseudoInstExpansion）来实现指令替换。例如，对于LLVM IR中的无条件跳转指令br和函数返回指令ret，Mips使用寄存器寻址指令`"jr $ra"`来匹配，其指令的输入操作数数量和类型均与IR相同，可以很自然地匹配。但是LoongArch中没有这种格式的跳转指令，只有`"jirl $rd, $rj, offs16"`，如何匹配？JIRL的跳转地址为寄存器rj中的值加上16位立即数offs16逻辑左移2位再符号扩展所得的偏移值，同时将PC+4写入寄存器rd。那么，我们只需令0ffs16恒为零，令寄存器rj为寄存器ra（返回地址寄存器），令寄存器rd为寄存器ZERO（因为我们不关心跳转指令的输出），即可用JIRL指令“假装”成JR指令，实现跳转到函数返回地址的效果。也就是定义伪指令ret，然后把ret通过PseudoInstExpansion扩展成特殊格式的JIRL，实现指令替换。
+
++ **LoongArchTargetMachine.cpp/.h**
+
+​		
 
 ## Target Machine
 
@@ -457,7 +489,7 @@ If you are having problems with limited memory and build time, please try buildi
 
   `clang -target mips-unknown-linux-gnu -c test.cpp -emit-llvm -o test.bc`
 
-  `./llc -march=cpu0 -relocation-model=pic -filetype=asm test.bc -o test.cpu0.s`
+  `./llc -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.loongarch.s`
 
 ​		报错：`Assertion ‘Target && "Could not allocate target machine!"’ failed`
 

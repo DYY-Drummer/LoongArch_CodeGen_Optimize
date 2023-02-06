@@ -12,18 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// Format specifies the encoding used by the instruction.  This is part of the
-// ad-hoc solution used to emit machine instruction encodings by our machine
-// code emitter.
-class Format<bits<4> val> {
-  bits<4> Value = val;
-}
-
-def Pseudo    : Format<0>;
-def FrmA      : Format<1>;
-def FrmL      : Format<2>;
-def FrmJ      : Format<3>;
-def FrmOther  : Format<4>; // Instruction w/ a custom format
 
 // Generic LoongArch Format
 class LAInst<dag outs, dag ins, string asmstr, list<dag> pattern,
