@@ -132,7 +132,7 @@ let isBranch=1, isTerminator=1, isBarrier=1, imm16=0, hasDelaySlot = 1,
 class JumpFR<bits<6> op, string instr_asm, SDNode OpNode,
              Operand Od, PatLeaf imm_type, RegisterClass RC>:
     Fmt2RI16<op, (outs RC:$rd), (ins RC:$rj, Od:$imm16),
-     !strconcat(instr_asm, "\t$rj"), [(set RC:$rd, (OpNode RC:$rj, imm_type:$imm16))], IIBranch> {
+     !strconcat(instr_asm, "\t$rd, $rj, $imm16"), [(set RC:$rd, (OpNode RC:$rj, imm_type:$imm16))], IIBranch> {
   let rd = 0;
   let imm16 = 0;
 }
@@ -183,3 +183,20 @@ let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
 def : Pat<(i32 immSExt12:$in),
           (ADDI_W ZERO, imm:$in)>;
 
+
+//===----------------------------------------------------------------------===//
+//  Instruction aliases
+//===----------------------------------------------------------------------===//
+//  class InstAlias<string Asm, dag Result, int Emit = 0b1> {
+//      string AsmString = Asm;      // The .s format to match the instruction with.
+//      dag ResultInst = Result;     // The MCInst to generate.
+//      //This determines which order the InstPrinter detects aliases for
+//      // printing. A larger value makes the alias more likely to be
+//      // emitted. The Instruction's own definition is notionally 0.5, so 0
+//      // disables printing and 1 enables it if there are no conflicting aliases.
+//      int EmitPriority = Emit;
+//  }
+//===----------------------------------------------------------------------===//
+def : InstAlias<"jr $rj",                (JIRL      ZERO, GPR:$rj, 0), 3>;
+def : InstAlias<"jr ${offset}(${rj})",   (JIRL      ZERO, GPR:$rj, simm16:$offset)>;
+def : InstAlias<"ret",                   (JIRL      ZERO,      RA, 0), 4>;

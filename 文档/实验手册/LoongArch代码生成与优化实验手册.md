@@ -4,15 +4,15 @@
 
 ## 写在前面
 
-​	LLVM项目开源历史悠久，但是网上却少有新手友好的开发教程，大多只停留在理论阶段，分析LLVM整体架构和工作原理。一是因为LLVM项目本身十分庞大，又属于底层开发，项目代码错综复杂且时常更改，编写一套完整的免费开发教程所需的精力和时间对于个人来说太过苛刻。二是因为LLVM后端代码的贡献者大多为各指令集架构的公司或LLVM官方人员，就算是为了学习编译器技术，也鲜少有业余程序员会需要从头到尾开发一个新的LLVM后端。
+​		LLVM项目开源历史悠久，但是网上却少有新手友好的开发教程，大多只停留在理论阶段，分析LLVM整体架构和工作原理。一是因为LLVM项目本身十分庞大，又属于底层开发，项目代码错综复杂且时常更改，编写一套完整的免费开发教程所需的精力和时间对于个人来说太过苛刻。二是因为LLVM后端代码的贡献者大多为各指令集架构的公司或LLVM官方人员，就算是为了学习编译器技术，也鲜少有业余程序员会需要从头到尾开发一个新的LLVM后端。
 
-​	虽然LLVM官方也提供了标准的后端开发说明手册，但是其过于晦涩难懂且忽略了太多细节，不适合新手作为自己开发第一个后端的参照，用作开发中关键词查询手册更合适。
+​		虽然LLVM官方也提供了标准的后端开发说明手册，但是其过于晦涩难懂且忽略了太多细节，不适合新手作为自己开发第一个后端的参照，用作开发中关键词查询手册更合适。
 
-​	本文将基于笔者开发LoongArch指令集的LLVM后端项目的经验历程，从代码编写的角度，一步步讲解如何开发一个具有基本功能的LLVM后端。
+​		本文将基于笔者开发LoongArch指令集的LLVM后端项目的经验历程，从代码编写的角度，一步步讲解如何开发一个具有基本功能的LLVM后端。
 
-​	笔者认为，LLVM 后端开发的精髓在于“抄袭与学习”。LLVM官方开发手册中也建议“通过复制其它后端的代码来开发新的后端会是较好的选择”。LLVM项目继承树深度深，分支多，调用关系复杂，在初读LLVM后端代码时很可能会陷入类似于“这个变量类型的父类定义是什么？定义里调用的成员函数来自哪里？成员函数里的依赖约束来源又是哪？”的追踪困境——对于LLVM这样庞大的项目，追根溯源断是不可行的，纠结过深也反而会走一步忘一步，让我们偏离原本的开发重心。更何况LLVM的模块化做得如此出色，就是方便开发者可以不用去管具体的底层实现，直接使用现成的接口。LLVM中大量使用TableGen语言和内置的接口，在开发过程中对于陌生的格式和定义保持“知其然而不知其所以然”的态度即可，将注意力更多地放在新后端的设计上，对于LLVM规范点到即止，将会有助于我们的开发效率。本文将以“能写出代码”为标准，对理解项目所需的必要内容进行讲解，力求范围最小化。
+​		笔者认为，LLVM 后端开发的精髓在于“抄袭与学习”。LLVM官方开发手册中也建议“通过复制其它后端的代码来开发新的后端会是较好的选择”。LLVM项目继承树深度深，分支多，调用关系复杂，在初读LLVM后端代码时很可能会陷入类似于“这个变量类型的父类定义是什么？定义里调用的成员函数来自哪里？成员函数里的依赖约束来源又是哪？”的追踪困境——对于LLVM这样庞大的项目，追根溯源断是不可行的，纠结过深也反而会走一步忘一步，让我们偏离原本的开发重心。更何况LLVM的模块化做得如此出色，就是方便开发者可以不用去管具体的底层实现，直接使用现成的接口。LLVM中大量使用TableGen语言和内置的接口，在开发过程中对于陌生的格式和定义保持“知其然而不知其所以然”的态度即可，将注意力更多地放在新后端的设计上，对于LLVM规范点到即止，将会有助于我们的开发效率。本文将以“能写出代码”为标准，对理解项目所需的必要内容进行讲解，力求范围最小化。
 
-
+​		一些重要的官方链接：
 
 Loongson官方网站（龙芯中科技术股份有限公司）：
 
@@ -177,7 +177,7 @@ let Predicates = [DisableOverflow] in {
 
 ​		.td文件的组织方式使得开发人员可以模块化设计他们的目标架构，分别为不同的模块创建一个.td文件，习惯上以`目标架构名+模块名`的方式命名，如Mips中用于描述寄存器类的文件：`MipsRegisterInfo.td`。
 
-​		在理想的情况下，所有目标特定的信息都应该由.td文件描述，但目前的LLVM还无法做到，对于一些复杂的设计，例如地址模式，指令选择等，无法用.td文件描述，需要利用C++来完成。TableGen工具会依据.td文件生成后端描述文件.inc，这些.inc文件与.h/cpp文件加在一起便能提供完整的目标信息，如下图所示。
+​		在理想的情况下，所有目标特定的信息都应该由.td文件描述，但目前的LLVM还无法做到，对于一些复杂的设计，例如地址模式，指令选择等，无法用.td文件描述，需要利用C++来完成。TableGen工具会依据.td文件生成后端描述文件.inc，这些.inc文件与.h/cpp文件加在一起便能提供完整的目标信息，生成模式匹配表，如下图所示。
 
 ![后端开发结构图](后端开发结构图.PNG)
 
@@ -254,7 +254,7 @@ st %a, i32* %c, 2
 
 ![set and add](/set and add.PNG)
 
-​		 `set` 是TableGen关键字，是一个赋值操作，相当于“=”，在DAG中它表示匹配形如“`$ra = ...`" 的指令。`(opNode regClass:$rb, immType:$imm16)`是一个DAG树，它嵌套在DAG`(set GPROut:$ra, ...)` 作为一个操作数。综上，若`opNode = add`，则这个DAG图匹配的LLVM IR就是类似于`%3 = add i32 %2, 0`的指令，当遇到符合该形式的IR指令时就按照上面的DAG模式转换成对应的机器指令。
+​		 `set` 是TableGen关键字，是一个赋值操作，相当于“=”，在DAG中它表示匹配形如“`$ra = ...`" 的指令。`(opNode regClass:$rb, immType:$imm16)`是一个DAG树，它嵌套在DAG`(set GPROut:$ra, ...)` 作为一个操作数。指令选择就是将输入的IR DAG转换为特定于目标架构的包含机器代码的合法DAG。综上，若`opNode = add`，则这个DAG图匹配的LLVM IR就是类似于`%3 = add i32 %2, 0`的指令，当遇到符合该形式的IR指令时就按照上面的DAG模式转换成对应的机器指令DAG。
 
 ​		为了举例说明，让我们提前看一下指令ADDI.W的定义：
 
@@ -310,13 +310,13 @@ def ADDI_W : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12>;
 
 ​		知乎：https://zhuanlan.zhihu.com/p/595518574
 
-
+​		
 
 ## 1.3 注册新后端
 
 ​		从本节开始，我们将正式进行代码编写工作，为了读者能够更好理解，请配合代码仓库中的完整代码阅读，代码仓库按照章节划分新增/更改的代码内容，本文只会贴出逻辑说明所必要的部分代码。
 
-​		一个新后端的编写首先应该从让LLVM project 知道这个新后端的存在开始，即告诉LLVM“嘿！我也是一个需要被编译的后端，我在。。。”，需要注册的信息包括新后端机器的ID和重定位记录。该部分所修改的是所有后端共用的公共文件，只需要模仿别的后端的格式，在相同的地方添加上LoongArch的信息即可。至于为什么修改这些文件，请暂时只当做一种LLVM项目架构规范理解。
+​		一个新后端的编写首先应该从让LLVM project 知道这个新后端的存在开始，即告诉LLVM“嘿！我也是一个需要被编译的后端，我在。。。”，让LLVM工具在运行时能查找到并使用新后端。需要注册的信息包括新后端机器的ID和重定位记录。该部分所修改的是所有后端共用的公共文件，只需要模仿别的后端的格式，在相同的地方添加上LoongArch的信息即可。至于为什么修改这些文件，请暂时只当做一种LLVM项目架构规范理解。
 
 + **llvm/CMakeLists.txt**
 
@@ -433,69 +433,136 @@ let Inst{4-0} = rd;
 
 ​		具体到某一条机器指令模式的实现，继承自LoongArchInstrFormats.td中的指令类型，还定义了立即数的格式，内存操作数和地址等操作数格式。目前只定义了内存操作指令store和load、一个加法指令和一个返回指令，以支持最简单的C语言程序（main函数中只有一个return 0）。关于这部分代码的指令模式匹配的具体解释请参照1.2.4节，此处不再赘述。
 
-​		需要特别提出的是，指令中的isPseudo参数用来指明该指令是否是一个伪指令。伪指令代表目标机器架构中并不存在这么一个指令，只是为了统一格式，提高代码可读性的一种手段，通常会结合伪指令扩展（PseudoInstExpansion）来实现指令替换。例如，对于LLVM IR中的无条件跳转指令br和函数返回指令ret，Mips使用寄存器寻址指令`"jr $ra"`来匹配，其指令的输入操作数数量和类型均与IR相同，可以很自然地匹配。但是LoongArch中没有这种格式的跳转指令，只有`"jirl $rd, $rj, offs16"`，如何匹配？JIRL的跳转地址为寄存器rj中的值加上16位立即数offs16逻辑左移2位再符号扩展所得的偏移值，同时将PC+4写入寄存器rd。那么，我们只需令0ffs16恒为零，令寄存器rj为寄存器ra（返回地址寄存器），令寄存器rd为寄存器ZERO（因为我们不关心跳转指令的输出），即可用JIRL指令“假装”成JR指令，实现跳转到函数返回地址的效果。也就是定义伪指令ret，然后把ret通过PseudoInstExpansion扩展成特殊格式的JIRL，实现指令替换。
+​		需要特别提出的是，指令中的isPseudo参数用来指明该指令是否是一个伪指令。伪指令代表目标机器架构中并不存在这么一个指令，只是为了统一格式，提高代码可读性的一种手段，通常会结合伪指令扩展（PseudoInstExpansion）来实现指令替换。例如，对于LLVM IR中的无条件跳转指令br和函数返回指令ret，Mips使用寄存器寻址指令`"jr $ra"`来匹配，其指令的输入操作数数量和类型均与IR相同，可以很自然地匹配。但是LoongArch中没有这种格式的跳转指令，只有`"jirl $rd, $rj, offs16"`，如何匹配？JIRL的跳转地址为寄存器rj中的值加上16位立即数offs16逻辑左移2位再符号扩展所得的偏移值，同时将PC+4写入寄存器rd。那么，我们只需令0ffs16恒为零，令寄存器rj为寄存器ra（返回地址寄存器），令寄存器rd为寄存器ZERO（因为我们不关心跳转指令的输出），即可用JIRL指令“假装”成JR指令，实现跳转到函数返回地址的效果。也就是定义伪指令ret，然后把ret通过PseudoInstExpansion扩展成特殊格式的JIRL，实现指令替换。如下代码定义了伪指令PseudoRet，并将其扩展成了JIRL的实现:
 
-+ **LoongArchTargetMachine.cpp/.h**
+```c++
+let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
+  def PseudoRet  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>
+                  ,PseudoInstExpansion<(JIRL ZERO, RA, 0)>;
+```
 
-​		
+​		其中，参数isReturn、isTerminator等，皆是跳转指令特定的flag，需要置为1。查看编译后生成的LoongArchGenMCPseudoLowering.inc文件，可以看到扩展的伪指令被替换成JIRL指令的格式然后发射到指令流中。
 
-## Target Machine
+```c++
+switch (MI->getOpcode()) {
+    default: return false;
+    case LoongArch::PseudoRet: {
+      MCInst TmpInst;
+      MCOperand MCOp;
+      TmpInst.setOpcode(LoongArch::JIRL);
+      // Operand: rd
+      TmpInst.addOperand(MCOperand::createReg(LoongArch::ZERO));
+      // Operand: rj
+      TmpInst.addOperand(MCOperand::createReg(LoongArch::RA));
+      // Operand: imm16
+      TmpInst.addOperand(MCOperand::createImm(0));
+      EmitToStreamer(OutStreamer, TmpInst);
+      break;
+    }
+  }
+```
 
-> LLVMTargetMachine是LLVM代码生成器的基类，包含各种抽象方法，具体实现应由继承它的LoongArchTargetMachine类来完成
-
-+ 类似地，我们应该直接复制现有的TargetMachine类实现和头文件（例如Mips的），再进行更改。命名为`LoongArchTargetMachine.cpp`和`LoongArchTargetMachine.h`。
 
 
++ **LoongArchTargetMachine.cpp、LoongArchTargetMachine.h**
 
+​		LLVMTargetMachine是LLVM代码生成器的基类，包含各种抽象方法，具体实现应由继承它的LoongArchTargetMachine类来完成。目前只需定义一个空的初始化函数。
 
++ **MCTargetDesc/...**
+
+​		MC层的目标描述文件，描述MC层的寄存器信息、指令信息和指令输出方式等。MC层（Machine Code）是LLVM 中非常低的一层，用于处理汇编、反汇编、目标文件格式以及指令打印等原始机器代码级别的问题，在MC层中不存在常量池、跳转表等高级的表示形式，只存在汇编级的数据结构，例如标签和机器指令。MC层包括指令打印机（MCInstPrinter，给定一个 MCInst，格式化指令的文本表示并将其发送到原生的输出流）、指令编码器（将 MCInst 转换为一系列字节和重定位列表）、指令解析器（TargetAsmParser，输出操作码+操作数列表）、指令译码器(例如将立即数域转换为简单的整数操作数）、汇编解析器（实现了非常重要的MCStreamer API）和汇编程序后端（输出ELF或.o等目标文件）6个组成部分。
+
+​		关于LLVM MC 层的详细介绍请看https://blog.llvm.org/2010/04/intro-to-llvm-mc-project.html
+
+​		至于为什么要创建MCTargetDesc和TargetInfo这两个子目录，只是因为几乎所有后端都采用了这种代码组织结构。在编译之后这两个子目录会在编译路径的lib/目录下生成 : libLLVMLoongArchDesc.a和libLLVMLoongArchInfo.a两个库。
+
++ **TargetInfo/...**
+
+​		使用TargetRegistry模板为LoongArch目标声明一个全局Target对象，使LLVM目标注册表可以通过目标名或目标三元组来查找该目标：
+
+```c++
+Target llvm::TheLoongArchTarget;
+
+extern "C" void LLVMInitializeLoongArchTargetInfo() {
+  RegisterTarget<Triple::loongarch, /*HasJIT=*/false>
+    X(TheLoongArchTarget, "loongarch", "LoongArch");
+}
+```
+
++ **编译脚本**
+
+​		在每个目录下都应该编写相应的CMakeLists.txt和LLVMBuild.txt文件，前者用于cmake执行，后者用于LLVM编译时的辅助指引，主要就是添加该目录下应该编译和应该输出的文件，可以直接移植其它后端的编译文件进行修改。（注：LLVMBuild.txt从LLVM 12开始不再使用）
 
 ## 编译
 
+​		首先，在llvm同级目录下创建一个build文件夹（路径示例如下）
 
+```
+~llvm-project-llvmorg-10.0.0
+	|- build
+	|- llvm
+        |- lib
+    |- clang
+	...
+```
 
-build 命令：
+​		初始化编译配置，输入命令：
 
 `cmake -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Debug -G "Ninja" ../llvm`
 
-`ninja -j4`
+​		此处指定了Ninja为编译工具，因为笔者感觉ninja的编译信息更易读，读者也可使用Linux自带的make，只需将`-G`后的选项改为“Unix Makefiles”即可。当终端显示如下信息时，则说明配置文件生成成功。
 
-`-j4`命令为指定最大同时运行指令数为4（内存小的系统建议调小）
+```
+-- Targeting LoongArch
+...
+-- Targeting XCore
+-- Configuring done
+-- Generating done
+-- Build files have been written to: ...
+```
 
-`ninja -j4`指令中途报错时，修复后可以再次执行`ninja -j4`，自动从出错的步骤继续开始
+然后使用ninja命令开始编译：`ninja -j4`
 
-If you are having problems with limited memory and build time, please try building with ninja instead of make. Please consider configuring the following options with cmake:
+`-j4`选项为指定最大同时运行指令数为4（内存小的系统建议调小），第一次编译大概率会遇到语法报错，修复后再次执行`ninja -j4`，即可自动从出错的步骤开始继续编译。
 
-> - **-G Ninja** Setting this option will allow you to build with ninja instead of make. Building with ninja significantly improves your build time, especially with incremental builds, and improves your memory usage.
->
-> - **-DLLVM_USE_LINKER** Setting this option to lld will significantly reduce linking time for LLVM executables on ELF-based platforms, such as Linux. If you are building LLVM for the first time and lld is not available to you as a binary package, then you may want to use the gold linker as a faster alternative to GNU ld.
->
-> - **-DLLVM_TARGETS_TO_BUILD** Set this equal to the target you wish to build. You may wish to set this to X86; however, you will find a full list of targets within the llvm-project/llvm/lib/Target directory.
->
->   
+如果你的机器性能不够理想，请考虑使用下列选项优化编译效率
 
-+ 使用lld加快编译 ``-DLLVM_USE_LINKER=lld`.`
+- **-DLLVM_USE_LINKER=lld** 在基于ELF的平台（例如Linux）上使用lld动态链接器能够显著减少LLVM可执行文件的链接时间。
+- **-DLLVM_TARGETS_TO_BUILD=LoongArch** 指定你想要编译的后端
+- **-DCMAKE_BUILD_TYPE=Release** 在不需要调试编译器的情况下可以将编译模式从Debug模式换成Release模式。
 
-+ 如果必须rebuild的话（更改过CMakeLists）可以用CCACHE : `-DLLVM_CCACHE_BUILD=ON`
++ **-DLLVM_CCACHE_BUILD=ON** 在需要rebuild的情况下（例如修改过CMakeLists），可以使用CCACHE加快编译。如果无需rebuild则增量编译就行了（只改了C++文件直接执行ninja即可，会自动识别需要重新编译的文件)。
 
-+ 安装lld和CCache: `apt install lld` ， `apt install ccache`
+​		编译前半段可以使用`-j4`，后半段[20xx/27xx]涉及的库较大极有可能因为内存不足而宕机（大概率是在`Linking CXX executable bin/llvm-lto`这一步），此时输入Ctrl+C中断执行或者强制关机，使用`ninja -j1`，继续编译即可。最坏情况需要5个小时才能完成全部编译。
 
-+ 如果无需rebuild则增量编译就行了（只改了C++文件直接执行ninja即可，会自动识别需要重新编译的文件)。
+​		编译完成后，在build/bin目录下执行`./llc --version `，即可获取当前llvm支持的所有后端，其中就可以看见我们新添加的loongarch（如下图所示） 。注：如果指令llc前没加`./`,则调用的是Ubuntu环境中的llvm（如果你之前安装过Ubuntu提供的软件包的话）。
 
-+ 编译前半段可以使用`-j4`，后半段[20xx/27xx]涉及的库较大极有可能因为内存不足而宕机（大概率是在`Linking CXX executable bin/llvm-lto`这一步），此时输入Ctrl+C中断执行或者强制关机，使用`ninja -j1`，继续编译即可。最坏情况需要5个小时才能完成全部编译。
+![llc --version执行结果](llc --version执行结果.PNG)
 
-+ 在build/bin目录下执行`./llc --version `，即可获取当前llvm支持的所有后端，其中就可以看见我们新添加的loongarch 。注：如果指令llc前没加`./`,则调用的是Ubuntu环境中的llvm（如果你之前安装过Ubuntu提供的软件包的话）。
+​		现在，编写一个最简单的测试文件test.c，并放到build/bin目录下：
 
-+ 依次执行下面两行指令，利用mips后端生成.bc文件，用loongarch后端生成.s文件
+```c
+//test.c
+int main() {
+  return 0;
+}
+```
 
-  `clang -target mips-unknown-linux-gnu -c test.cpp -emit-llvm -o test.bc`
 
-  `./llc -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.loongarch.s`
 
-​		报错：`Assertion ‘Target && "Could not allocate target machine!"’ failed`
+​		由于我们的LoongArch后端尚未支持ABI，所以先借助Mips的后端生成.bc文件：
 
-​		说明LLVM成功调用到了我们新添加的后端，只是我们还没编写target machine。
+​		`clang -target mips-unknown-linux-gnu -c test.c -emit-llvm -o test.bc`
 
-​		本章的任务到此结束。
+​		`-emit-llvm`表示生成LLVM IR，生成的test.bc就是LLVM IR的二进制文件。可以使用LLVM自带的反汇编工具llvm-dis将其翻译成可读的文本形式：`build/bin/llvm-dis ch1.bc -o -`不指定输出路径就会将结果直接输出到终端。
+
+​		最后，我们尝试用loongarch后端生成.s文件：
+
+​		`./llc -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.loongarch.s`
+
+​		这时会收到报错：`Assertion ‘Target && "Could not allocate target machine!"’ failed`
+
+​		报错提示我们并没有定义目标机器，但是这说明LLVM成功调用到了我们新添加的LoongArch后端，只是我们还没编写target machine。本章搭架构的任务到此结束。
 
 
 
