@@ -10,6 +10,7 @@ tablegen(LLVM Cpu0GenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM Cpu0GenMCPseudoLowering.inc -gen-pseudo-lowering)
 tablegen(LLVM Cpu0GenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM Cpu0GenCallingConv.inc -gen-callingconv)
+
 # Cpu0CommonTableGen must be defined
 add_public_tablegen_target(Cpu0CommonTableGen)
 

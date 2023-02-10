@@ -1,14 +1,14 @@
-//===-- Cpu0SEFrameLowering.cpp - Cpu0SE Frame Information ----*- C++ -*-===//
+//===-- LoongArchSEFrameLowering.cpp - LoongArchSE Frame Information ----*- C++ -*-===//
 //
-// This file contains the Cpu0 implementation of TargetFrameLowering class.
+// This file contains the LoongArch implementation of TargetFrameLowering class.
 //
 //===----------------------------------------------------------------------===//
 
-#include "Cpu0SEFrameLowering.h"
+#include "LoongArchSEFrameLowering.h"
 
-#include "Cpu0MachineFunctionInfo.h"
-#include "Cpu0SEInstrInfo.h"
-#include "Cpu0Subtarget.h"
+#include "LoongArchMachineFunctionInfo.h"
+#include "LoongArchSEInstrInfo.h"
+#include "LoongArchSubtarget.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -23,20 +23,20 @@
 
 using namespace llvm;
 
-Cpu0SEFrameLowering::Cpu0SEFrameLowering(const Cpu0Subtarget &STI)
-        : Cpu0FrameLowering(STI, STI.stackAlignment()) { }
+LoongArchSEFrameLowering::LoongArchSEFrameLowering(const LoongArchSubtarget &STI)
+        : LoongArchFrameLowering(STI, STI.stackAlignment()) { }
 
-void Cpu0SEFrameLowering::emitPrologue(MachineFunction &MF,
+void LoongArchSEFrameLowering::emitPrologue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
     /* Leave empty temporary */
 }
 
-void Cpu0SEFrameLowering::emitEpilogue(MachineFunction &MF,
+void LoongArchSEFrameLowering::emitEpilogue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
     /* Leave empty temporary */
 }
 
-const Cpu0FrameLowering *llvm::createCpu0SEFrameLowering(const Cpu0Subtarget
+const LoongArchFrameLowering *llvm::createLoongArchSEFrameLowering(const LoongArchSubtarget
                                                          &ST) {
-    return new Cpu0SEFrameLowering(ST);
+    return new LoongArchSEFrameLowering(ST);
 }

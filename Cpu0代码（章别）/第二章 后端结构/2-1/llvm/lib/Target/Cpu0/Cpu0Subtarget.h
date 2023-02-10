@@ -30,7 +30,7 @@ namespace llvm {
         virtual void anchor();
 
     protected:
-        enum Cpu0ArchEnum {{}
+        enum Cpu0ArchEnum {
             Cpu032I,
             Cpu032II
         };

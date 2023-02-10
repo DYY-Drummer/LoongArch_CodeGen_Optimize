@@ -1,29 +1,29 @@
-//===-- Cpu0RegisterInfo.h - Cpu0 Register Information Impl -----*- C++ -*-===//
+//===-- LoongArchRegisterInfo.h - LoongArch Register Information Impl -----*- C++ -*-===//
 //
-// This file contains the Cpu0 implementation of the TargetRegisterInfo class.
+// This file contains the LoongArch implementation of the TargetRegisterInfo class.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIB_TARGET_CPU0_CPU0REGISTERINFO_H
-#define LLVM_LIB_TARGET_CPU0_CPU0REGISTERINFO_H
+#ifndef LLVM_LIB_TARGET_LOONGARCH_LOONGARCHREGISTERINFO_H
+#define LLVM_LIB_TARGET_LOONGARCH_LOONGARCHREGISTERINFO_H
 
-#include "Cpu0.h"
+#include "LoongArch.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 
 #define GET_REGINFO_HEADER
-#include "Cpu0GenRegisterInfo.inc"
+#include "LoongArchGenRegisterInfo.inc"
 
 namespace llvm {
-    class Cpu0Subtarget;
+    class LoongArchSubtarget;
     class TargetInstrInfo;
     class Type;
 
-    class Cpu0RegisterInfo : public Cpu0GenRegisterInfo {
+    class LoongArchRegisterInfo : public LoongArchGenRegisterInfo {
     protected:
-        const Cpu0Subtarget &Subtarget;
+        const LoongArchSubtarget &Subtarget;
 
     public:
-        Cpu0RegisterInfo(const Cpu0Subtarget &Subtarget);
+        LoongArchRegisterInfo(const LoongArchSubtarget &Subtarget);
 
         const MCPhysReg *getCalleeSavedRegs(const MachineFunction *MF) const override;
 

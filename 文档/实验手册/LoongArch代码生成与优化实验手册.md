@@ -50,7 +50,7 @@ LoongArch的ELF psABI文档：
 
 + 虚拟机的虚拟内存至少需要开到8G，编译时最大并行线程数不要超过4，否则很容易因内存不足而宕机，这时请强制退出然后将最大并行数设为1重试。存储空间至少分配100G，LLVM项目编译后可达到30G。
 
-+ LoongArch与Mips的相似度极高，可以重点参考Mips的代码。在配置环境文件时，可以使用`Ctrl+F`搜索”Mips“关键词，在相同位置依葫芦画瓢即可。
++ LoongArch与RISCV的相似度极高，可以重点参考RISCV和Mips的代码。在配置环境文件时，可以使用`Ctrl+F`搜索”RISCV“关键词，在相同位置依葫芦画瓢即可。
 
 + 遇到Bug时，根据报错文件参考其它Target的代码进行修改。无法解决可以上Github的LLVM-project仓库（https://github.com/llvm/llvm-project/issues/）中提交issue，或者上LLVM官方社区论坛（https://discourse.llvm.org/latest）发布问题，一般24h之内就会有人回复。当然，建议在提问之前先通过关键字搜索是否有历史相同问题，大概率存在。
 
@@ -464,13 +464,13 @@ switch (MI->getOpcode()) {
 
 
 
-+ **LoongArchTargetMachine.cpp、LoongArchTargetMachine.h**
++ **LoongArchTargetMachine(.cpp/.h)**
 
 ​		LLVMTargetMachine是LLVM代码生成器的基类，包含各种抽象方法，具体实现应由继承它的LoongArchTargetMachine类来完成。目前只需定义一个空的初始化函数。
 
 + **MCTargetDesc/...**
 
-​		MC层的目标描述文件，描述MC层的寄存器信息、指令信息和指令输出方式等。MC层（Machine Code）是LLVM 中非常低的一层，用于处理汇编、反汇编、目标文件格式以及指令打印等原始机器代码级别的问题，在MC层中不存在常量池、跳转表等高级的表示形式，只存在汇编级的数据结构，例如标签和机器指令。MC层包括指令打印机（MCInstPrinter，给定一个 MCInst，格式化指令的文本表示并将其发送到原生的输出流）、指令编码器（将 MCInst 转换为一系列字节和重定位列表）、指令解析器（TargetAsmParser，输出操作码+操作数列表）、指令译码器(例如将立即数域转换为简单的整数操作数）、汇编解析器（实现了非常重要的MCStreamer API）和汇编程序后端（输出ELF或.o等目标文件）6个组成部分。
+​		MC层的目标描述文件，描述MC层的寄存器信息、指令信息和指令输出方式等。MC层（Machine Code）是LLVM 中非常低的一层，用于处理汇编、反汇编、目标文件格式以及指令打印等原始机器代码级别的问题，在MC层中不存在常量池、跳转表等高级的表示形式，只存在汇编级的数据结构，例如标签和机器指令。MC层包括指令输出器（MCInstPrinter，给定一个 MCInst，格式化指令的文本表示并将其发送到原生的输出流）、指令编码器（将 MCInst 转换为一系列字节和重定位列表）、指令解析器（TargetAsmParser，输出操作码+操作数列表）、指令译码器(例如将立即数域转换为简单的整数操作数）、汇编解析器（实现了非常重要的MCStreamer API）和汇编程序后端（输出ELF或.o等目标文件）6个组成部分。
 
 ​		关于LLVM MC 层的详细介绍请看https://blog.llvm.org/2010/04/intro-to-llvm-mc-project.html
 
@@ -493,7 +493,7 @@ extern "C" void LLVMInitializeLoongArchTargetInfo() {
 
 ​		在每个目录下都应该编写相应的CMakeLists.txt和LLVMBuild.txt文件，前者用于cmake执行，后者用于LLVM编译时的辅助指引，主要就是添加该目录下应该编译和应该输出的文件，可以直接移植其它后端的编译文件进行修改。（注：LLVMBuild.txt从LLVM 12开始不再使用）
 
-## 编译
+## 1.5 编译
 
 ​		首先，在llvm同级目录下创建一个build文件夹（路径示例如下）
 
@@ -568,9 +568,105 @@ int main() {
 
 # 第二章 后端结构
 
+​		在上一章中我们完成了一个新后端所必需的“表面功夫”，深入到目标机器级别的内容还一无所有。本章将根据LLVM后端继承树的结构逐步实现目标机器架构、汇编输出器、IR DAG到目标机器DAG指令选择、函数首/尾端处理，最终支持main函数只包含一个return语句的C程序 ，能够输出LoongArch汇编代码。本章可能是最为晦涩难懂的一章，因为我们需要打穿IR到机器代码中间的所有流程，逻辑纵穿整个LLVM后端结构，代码量约5000行。话虽如此，这部分的代码在所有的后端中都几乎一样，在实际编程中可大批挪用Mips/RISCV的代码，再进行修改（笔者希望未来的LLVM可以把这些共通的代码移植到公共代码区，不再需要开发人员手动编写）。读者在阅读本章时应将重点放在各成员类的调用关系和DAG模式匹配上，一旦熟悉了LLVM后端结构，就可以十分快速地从零开始构建一个新的后端。
 
 
-## 2_1
+
+## 2.1 目标机器架构
+
+​		本节新建了大部分LoongArch后端类，关系类图如下所示。
+
+![2-1类图-白底](2-1类图-白底.PNG)
+
+​		LoongArchSubtarget类在构造函数中创建了LoongArchFrameLowering、LoongArchTargetLowering等类的对象，将它们的引用（std::unique_ptr）作为成员变量保存了起来，并提供了这些对象的get()接口。大多数类（如LoongArchInstrInfo、LoongArchRegisterInfo）中都会保留一个LoongArchSubtarget的引用对象作为成员变量，从而使用LoongArchSubtarget的接口访问其它类。即使没有保存LoongArchSubtarget的引用，也能通过LoongArchTargetMachine 获取LoongArchSubtarget的引用： `static_cast<const LoongArchTargetMachine &>(TM).getSubtargetImpl()`。一旦获取了LoongArchSubtarget的引用，就可以通过它访问其它类。
+
+
+
++ **LoongArchTargetObjectFile(.h/.cpp)**
+
+​		定义了目标文件（ELF文件）的相关规范和初始化函数。不同的编译器对于程序的存储分配策略不尽相同，但是大都符合三段式结构：Text段、Data段和BSS(Block Started by Symbol)段。Text段用于存放代码，Data段用于存放有初始值的数据，BSS段用于存放未初始化的数据。.sdata和.sbss的s前缀代表“small”，该形式能节省ELF文件占用的内存。
+
++ **LoongArchTargetMachine(.h/.cpp)**
+
+​		定义了目标机器相关特性。实现了龙芯机器基类LoongArchTargetMachine和32位目标机器子类LoongArch32TargetMachine（后续会拓展64位目标机器），提供了ABI接口、Subtarget接口和TargetLoweringObjectFile接口，指定机器为小端模式，指定重定位模式，组装DataLayout字符串。DataLayout是目标机器数据格式的描述，包括指针大小、对齐方式等，LoongArch的DataLayout定义如下。
+
+```c++
+"e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32-s128"
+```
+
+​		"-"为选项间的分隔符，从左往右，开头的"e"代表小端；"m:e"代表符号压缩格式（mangle）为Linux（Mac为“m:o”)；"p:32:32"代表指针的大小和对齐方式均为32位；"i8:8:32-i16:16:32-i64:64"代表8-bit整数和16bit整数分别向8位和16位对齐，但是尝试向32位对齐，64位整数向64位对齐；"n32"代表机器支持的整数位数为32位，对于X86-64，它支持8、16、32和64位的整数，那么该选项就是"n8:16:32:64"；"S128"代表栈的对齐方式为128位。
+
+​		getSubtargetImpl()方法通过提供的目标机器CPU类型（例如是32位龙芯芯片还是64位的）和特征(features)选项来查找符合条件的Subtarget，如果不存在则创建一个。
+
+
+
++ **LoongArch.td**
+
+​		定义了LoongArch机器特征(Features)，如是否具有Slt指令，是否支持单/双精度浮点数，是否支持二进制翻译扩展等。
+
+​		所有Feature都是LLVM SubtargetFeature的子类，在实际运行中，Features被编码成形如"+attr1,+attr2,-attr3,...,+attrN"的字符串形式，特征前的加号或减号指示（根据CPU配置）应用或者禁用该特征，以逗号分隔。SubtargetFeature类会将该字符串拆分成一个个特征后进行匹配，具体请查看llvm/MC/SubtargetFeature.h。可以通过终端选项  `-mattr=+feature1,-feature2`来指定特征。如下为单精度浮点数特征的定义：
+
+```c++
+def FeatureBasicF
+: SubtargetFeature<"f", "HasBasicF", "true",
+        "'F' (Single-Precision Floating-Point)">;
+def HasBasicF
+: Predicate<"Subtarget->hasBasicF()">,
+AssemblerPredicate<"FeatureBasicF",
+"'F' (Single-Precision Floating-Point)">;
+```
+
+​		SubtargetFeature的四个参数中，“f"为特征名称，必须小写；"HasBasicF"指定了用于判断是否具有该特征的Predicate；"true"代表默认应用该特征；最后一个参数为特征注释。HasBasicF继承了Predicate类并指定了判断函数hasBasicF()（在LoongArchSubtarget.h中实现）。
+
+​		下面的代码定义了一个loongarch32的处理器，调度模式为LoongArchGenericItineraries，具有FeatureLoongArch32的特征。
+
+```c++
+class Proc<string Name, list<SubtargetFeature> Features>
+: Processor<Name, LoongArchGenericItineraries, Features>;
+
+def : Proc<"loongarch32", [FeatureLoongArch32]>;
+```
+
+​		可以通过终端选项`-mcpu=loongarch32`来指定CPU为loongarch32，也可以输入`-mcpu=help`来查看所有可用的CPU和特征，如下图所示。
+
+![-mcpu=help](-mcpu=help.PNG)
+
+​		查看生成的LoongArchGenSubtargetInfo.inc文件以看到TableGen按照顺序依次设置了各个特征的
+
+flag位，这样，所有特征的应用情况就可以用一个长度为12的Bits表示，若相应位为1则表示该特征处于激活状态。
+
+```c++
+//LoongArchGenSubtargetInfo.inc
+enum {
+  FeatureBasicD = 0,
+  FeatureBasicF = 1,
+  FeatureExtLASX = 2,
+  FeatureExtLBT = 3,
+  FeatureExtLSX = 4,
+  FeatureExtLVZ = 5,
+  FeatureLoongArch32 = 6,
+  FeatureSlt = 7,
+  LaGlobalWithAbs = 8,
+  LaGlobalWithPcrel = 9,
+  LaLocalWithAbs = 10,
+  NumSubtargetFeatures = 11
+};
+```
+
++ **LoongArchCallingConv.td**
+
+​		定义了
+
+
+
++ LoongArchInstrInfo.h通过定义以下代码来从LoongArchGenInstrInfo.inc中提取它需要的数据
+
+```c++
+#define GET_INSTRINFO_HEADER
+#include "LoongArchGenInstrInfo.inc"
+```
+
+
 
 报错：` Assertion TmpAsmInfo && "MCAsmInfo not initialized. " "Make sure you include the correct TargetSelect.h" "and that InitializeAllTargetMCs() is being invoked!"'`
 
@@ -719,3 +815,10 @@ Machine Branch Probability Analysis
 
   LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注释）
 
+
+
+​		上文提及过，.td文件会被TableGen工具用来生成.inc文件，从而被其它.cpp文件引用，.inc文件中的类可以被后端类使用和继承，甚至重写其中的函数。这些.inc文件都在Build目录中相应的.td文件的同级目录下。TableGen工具通过模式匹配技术和.td文件配合，使需要编写的后端代码大大减少了。下图展示了这些TableGen生成的类（蓝色）的继承树。
+
+![2-1 TableGen生成的.inc文件的继承树](2-1 TableGen生成的.inc文件的继承树.PNG)
+
+​		LLVM继承树要远深于此，不过暂时浮于表面也能够理解代码逻辑，此处不再深挖。也多亏了LLVM的继承树结构，我们在指令、栈帧和DAG选择中不用实现海量的代码，因为大部分已经被其父类实现。

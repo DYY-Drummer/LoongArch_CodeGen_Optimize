@@ -81,7 +81,7 @@ Cpu0RegisterInfo::trackLivenessAfterRegAlloc(const MachineFunction &MF) const {
     return true;
 }
 
-unsigned Cpu0RegisterInfo::
+Register Cpu0RegisterInfo::
 getFrameRegister(const MachineFunction &MF) const {
     const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
     return TFI->hasFP(MF) ? (Cpu0::FP) :
