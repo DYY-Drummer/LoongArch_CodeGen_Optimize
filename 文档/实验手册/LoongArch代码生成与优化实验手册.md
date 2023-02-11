@@ -578,9 +578,13 @@ int main() {
 
 ![2-1类图-白底](2-1类图-白底.PNG)
 
-​		LoongArchSubtarget类在构造函数中创建了LoongArchFrameLowering、LoongArchTargetLowering等类的对象，将它们的引用（std::unique_ptr）作为成员变量保存了起来，并提供了这些对象的get()接口。大多数类（如LoongArchInstrInfo、LoongArchRegisterInfo）中都会保留一个LoongArchSubtarget的引用对象作为成员变量，从而使用LoongArchSubtarget的接口访问其它类。即使没有保存LoongArchSubtarget的引用，也能通过LoongArchTargetMachine 获取LoongArchSubtarget的引用： `static_cast<const LoongArchTargetMachine &>(TM).getSubtargetImpl()`。一旦获取了LoongArchSubtarget的引用，就可以通过它访问其它类。
+​		Subtarget是较为中心的一个类，LoongArchSubtarget类在构造函数中创建了LoongArchFrameLowering、LoongArchTargetLowering等类的对象，将它们的引用（std::unique_ptr类型）作为成员变量保存了起来，并提供了这些对象的get()接口。大多数类（如LoongArchInstrInfo、LoongArchRegisterInfo）中都会保留一个LoongArchSubtarget的引用对象作为成员变量，从而使用LoongArchSubtarget的接口访问其它类。即使没有保存LoongArchSubtarget的引用，也能通过LoongArchTargetMachine 获取LoongArchSubtarget的引用： `static_cast<const LoongArchTargetMachine &>(TM).getSubtargetImpl()`。一旦获取了LoongArchSubtarget的引用，就可以通过它访问其它类。
 
+​		上文提及过，.td文件会被TableGen工具用来生成.inc文件，从而被其它.cpp文件引用，.inc文件中的类可以被后端类使用和继承，甚至重写其中的函数。这些.inc文件都在Build目录中相应的.td文件的同级目录下。TableGen工具通过模式匹配技术和.td文件配合，使需要编写的后端代码大大减少了。下图展示了这些.inc文件（蓝色）的继承树。
 
+![2-1 TableGen生成的.inc文件的继承树](2-1 TableGen生成的.inc文件的继承树.PNG)
+
+​		LLVM继承树要远深于此，不过暂时浮于表面也能够理解代码逻辑，此处不再深挖。也多亏了LLVM的继承树结构，我们在指令、栈帧和DAG选择中不用实现海量的代码，因为大部分已经被其父类实现。
 
 + **LoongArchTargetObjectFile(.h/.cpp)**
 
@@ -655,34 +659,124 @@ enum {
 
 + **LoongArchCallingConv.td**
 
-​		定义了
+​		定义了被调用者保存寄存器的集合为RA、FP和S0-S8。被调用者保存寄存器也称为静态寄存器。
 
++ **LoongArch(SE)FrameLowering(.h/.cpp)**
 
+​		"Lowering"意为下降，在LLVM中代表将IR级别的信息下降（具体实现）到目标机器级别。LoongArchFrameLowering负责栈功能的具体实现，继承自TargetFrameLowering，LoongArchSEFrameLowering为LoongArch Standard Edition（标准版本）LoongArch32的栈功能实现类，继承自LoongArchFrameLowering。虽然目前标准版本只有一个LoongArch32，没必要区分SE，但是考虑将来扩展LoongArch64，还是留下了这个框架，同样，后续的文件也会区分基类版本和SE版本。
 
-+ LoongArchInstrInfo.h通过定义以下代码来从LoongArchGenInstrInfo.inc中提取它需要的数据
+​		emitPrologue()和emitEpilogue()用于在函数调用开始和结束时插入内容，具体实现放在后面的章节。LoongArch的栈向下生长，栈中数据可通过栈顶指针加一个正的偏移量来获取，栈中内容如下所示。
+
+```c++
+0 ----------
+. 函数参数
+. 局部数据区
+. CPU 的被调用者保存寄存器
+. 保存的FP(frame pointer)
+. 保存的RA(return address返回地址)
+栈空间大小 -----------
+```
+
+​		hasFP()函数用于检测当前目标机器是否启用帧指针寄存器FP，通常，栈指针SP会一直指向栈顶，而帧指针FP则指向栈底即数据的入口处，随着数据的变动而移动，如果不启用FP，将会使用SP代替。
+
+​		create()函数创建并返回LoongArchSEFrameLowering的一个对象。
+
++ **LoongArch(SE)InstrInfo(.h/.cpp)**
+
+​		正如之前提到的，.td文件的设计还不能描述一些复杂的逻辑，需要配合C++文件使用，LoongArch(SE)InstrInfo用于补全LoongArchInstrInfo.td的一些指令信息，目前还没什么实质内容，只定义接口的壳子。
+
+​		GetInstSizeInBytes()获取指令的字节长度(32-bit，4字节)。
+
+​		LoongArchInstrInfo.h通过定义以下代码来从LoongArchGenInstrInfo.inc中提取它需要的内容：
 
 ```c++
 #define GET_INSTRINFO_HEADER
 #include "LoongArchGenInstrInfo.inc"
 ```
 
+​		这样，LoongArchGenInstrInfo.inc文件中介于`#if def GET_INSTRINFO_HEADER`和`#endif`之间的代码就能被提取使用。
+
++ **LoongArchInstrInfo.td**
+
+​		新定义了LoongArch.td中新增的Feature的Predicate记录，如：
+
+```c++
+def HasSlt          : Predicate<"Subtarget->hasSlt()">;
+```
+
++ **LoongArch(SE)ISelLowering(.h/.cpp)**
+
+​		ISel(Instruction Selection)为指令选择的意思，该类实现了将IR下降为IR SelectionDAG（ISD）的功能，属于DAG合法化阶段，将目标机器不支持的类型和操作转换为支持的类型和操作。
+
+​		文件中定义了LoongArchTargetLowering类，继承自TargetLowering。定义了LoongArchISD节点枚举变量，包括尾调用、32位立即数高/低16位，函数返回等。getTargetNodeName()函数可以根据操作码获取DAG节点的名称。
+
+​		定义了值传递参数（ByValArg）的信息结构体：FirstIdx为第一个寄存器的索引，NumRegs是存放该参数的寄存器的编号，Address为该参数在栈中的地址，即相对于SP/FP的偏移量。
+
+```c++
+struct ByValArgInfo {
+    unsigned FirstIdx;
+    unsigned NumRegs;
+    unsigned Address;
+};
+```
+
+​		在LoongArchSETargetLowering中使用addRegisterClass设置了目标机器支持的寄存器类型：MVT::i32指示该寄存器集为整数32位寄存器，LoongArch::GPRRegClass的定义来自根据LoongArchRegisterInfo.td生成的LoongArchGenRegisterInfo.inc文件，即LoongArchRegisterInfo.td中定义的GPR寄存器集。
+
+```c++
+addRegisterClass(MVT::i32, &LoongArch::GPRRegClass);
+```
+
+​		为了支持只包含一个return的最简单的程序，此处实现了LowerReturn()用于设置指令的调用规范（如操作数寄存器为RA），将IR Ret转换为LoongArchISD::Ret。
+
++ **LoongArchMachineFunctionInfo(.h/.cpp)**
+
+​		处理函数相关的内容，目前只定义了传参相关的属性，如栈中函数参数区的首地址和最大栈容量。
+
++ **MCTargetDesc/LoongArchABIInfo(.h/.cpp)**
+
+​		 ABI(Application binary Interface)是操作系统为运行在该系统上的应用程序提供的二进制接口，可以类比为API。它包含了一系列编程约定，如数据类型、大小、对齐方式、函数参数如何传递以及如何返回等。
+
+​		此处定义了ILP32S、ILP32F、ILP32D和未知，四种ABI规范。ILP32S是针对整数指令操作的规范，使用 32 位通用寄存器和栈传参，其中用于传参的寄存器为A2-A7。
+
++ **LoongArchSubtarget(.h/.cpp)**
+
+​		Subtarget类是本节的中心，提供各类的调用接口。
+
+​		初始化目标机器设定，终端命令"-mcpu"选项处选择的CPU将在这里匹配（默认为LoongArch32），设定机器Features（默认不应用）。
+
++ **LoongArch(SE)RegisterInfo(.h/.cpp)**
+
+​		同样，用于补充LoongArchRegisterInfo.td中无法描述的逻辑，提供了获取栈帧寄存器、保留寄存器、被调用者寄存器的接口。其中被调用者保存寄存器集合CSR_ILP32S_LP64S_SaveList来自于LoongArchGenRegisterInfo.inc，是llc根据LoongArchCallingConv.td中的CSR_ILP32S_LP64S定义创建的。
+
++ 编译测试
+
+​		编译步骤同1.5节，可以在CMake选项中添加-DLLVM_TARGETS_TO_BUILD=LoongArch指定编译目标，加快编译时间。编译完成后在bin目录下执行：
+
+```cmake
+./llc -march=cpu0 -relocation-model=pic -filetype=asm ch3.bc -o ch3.cpu0.s
+```
+
+会收到新的报错：` Assertion TmpAsmInfo && "MCAsmInfo not initialized. " "Make sure you include the correct TargetSelect.h" "and that InitializeAllTargetMCs() is being invoked!"'`。报错提示我们没有汇编打印器的信息，我们将在下一节实现它。
+
+>
+>
+>feature 乱码的问题还没弄清，按照https://discourse.llvm.org/t/assertion-subtargetfeatures-hasflag-feature-feature-flags-should-start-with-or-failed/67939的方法用lldb调试一下看
+>
+>先安装：`sudo apt install lldb`
+>
+>调成功了就把llvm/lib/MC/MCSubtargetInfo.cpp:210的
+>
+>`FeatureBits = getFeatures(CPU, StringRef("+cpu032II"), ProcDesc, ProcFeatures);`
+>
+>里的死代码`StringRef("+cpu032II")`改回  `FS`
 
 
-报错：` Assertion TmpAsmInfo && "MCAsmInfo not initialized. " "Make sure you include the correct TargetSelect.h" "and that InitializeAllTargetMCs() is being invoked!"'`
+
+## 2.2 添加汇编打印器
+
+​		本节将实现LoongArchAsmPrinter
 
 
-
-## 2_2
-
-feature 乱码的问题还没弄清，按照https://discourse.llvm.org/t/assertion-subtargetfeatures-hasflag-feature-feature-flags-should-start-with-or-failed/67939的方法用lldb调试一下看
-
-先安装：`sudo apt install lldb`
-
-调成功了就把llvm/lib/MC/MCSubtargetInfo.cpp:210的
-
-`FeatureBits = getFeatures(CPU, StringRef("+cpu032II"), ProcDesc, ProcFeatures);`
-
-里的死代码`StringRef("+cpu032II")`改回  `FS`
 
 
 
@@ -817,8 +911,4 @@ Machine Branch Probability Analysis
 
 
 
-​		上文提及过，.td文件会被TableGen工具用来生成.inc文件，从而被其它.cpp文件引用，.inc文件中的类可以被后端类使用和继承，甚至重写其中的函数。这些.inc文件都在Build目录中相应的.td文件的同级目录下。TableGen工具通过模式匹配技术和.td文件配合，使需要编写的后端代码大大减少了。下图展示了这些TableGen生成的类（蓝色）的继承树。
-
-![2-1 TableGen生成的.inc文件的继承树](2-1 TableGen生成的.inc文件的继承树.PNG)
-
-​		LLVM继承树要远深于此，不过暂时浮于表面也能够理解代码逻辑，此处不再深挖。也多亏了LLVM的继承树结构，我们在指令、栈帧和DAG选择中不用实现海量的代码，因为大部分已经被其父类实现。
+​		

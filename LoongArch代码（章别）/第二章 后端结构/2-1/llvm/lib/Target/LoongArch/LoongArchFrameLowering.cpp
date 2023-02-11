@@ -33,7 +33,7 @@ using namespace llvm;
 // to grow up! Otherwise terrible hacks would have to be made
 // to get this stack ABI compliant :)
 //
-// The stack frame required by the ABI (after call)(Application binary Interface, compare it to "API"):
+// The stack frame required by the ABI (after call)(ABI: Application binary Interface, compare it to "API"):
 // Offset
 //
 // 0 ----------
@@ -57,7 +57,7 @@ using namespace llvm;
 //
 // Examples:
 // - reference to the actual stack frame
-// for any local area var there is smt like : FI >= 0, StackOffset: 4
+// for any local area var there is something like : FI >= 0, StackOffset: 4
 // st REGX, 4(SP)
 //
 // - reference to previous stack frame
@@ -76,7 +76,7 @@ const LoongArchFrameLowering *LoongArchFrameLowering::create(const LoongArchSubt
     return llvm::createLoongArchSEFrameLowering(ST);
 }
 
-// Reture true if the specified function should have a dedicated frame pointer
+// Return true if the specified function should have a dedicated frame pointer
 // register. This is true if the function has variable sized allocas,
 // if it needs dynamic stack realignment, if frame pointer elimination is
 // disabled, or if the frame address is taken.

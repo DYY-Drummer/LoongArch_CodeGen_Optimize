@@ -16,5 +16,7 @@ LoongArchSERegisterInfo::LoongArchSERegisterInfo(const LoongArchSubtarget &ST)
 
 const TargetRegisterClass *
 LoongArchSERegisterInfo::intRegClass(unsigned Size) const {
-    return &LoongArch::GPRRegClass;// defined in LoongArchGenRegisterInfo.inc, come from GPR in LoongArchRegisterInfo.td
+    // LoongArch::GPRRegClass defined in LoongArchGenRegisterInfo.inc,
+    // come from GPR in LoongArchRegisterInfo.td
+    return &LoongArch::GPRRegClass;
 }
