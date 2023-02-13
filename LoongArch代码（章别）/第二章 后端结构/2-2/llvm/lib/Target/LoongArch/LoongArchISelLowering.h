@@ -1,17 +1,17 @@
-//===-- Cpu0ISelLowering.h - Cpu0 DAG Lowering Interface --------*- C++ -*-===//
+//===-- LoongArchISelLowering.h - LoongArch DAG Lowering Interface --------*- C++ -*-===//
 //
 
 //
-// This file defines the interfaces that Cpu0 uses to lower LLVM IR code into a
+// This file defines the interfaces that LoongArch uses to lower LLVM IR code into a
 // selection DAG.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIB_TARGET_CPU0_CPU0ISELLOWERING_H
-#define LLVM_LIB_TARGET_CPU0_CPU0ISELLOWERING_H
+#ifndef LLVM_LIB_TARGET_LOONGARCH_LOONGARCHISELLOWERING_H
+#define LLVM_LIB_TARGET_LOONGARCH_LOONGARCHISELLOWERING_H
 
-#include "MCTargetDesc/Cpu0ABIInfo.h"
-#include "Cpu0.h"
+#include "MCTargetDesc/LoongArchABIInfo.h"
+#include "LoongArch.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLowering.h"
@@ -19,7 +19,7 @@
 #include <deque>
 
 namespace llvm {
-    namespace Cpu0ISD {
+    namespace LoongArchISD {
         enum NodeType {
             // Start the numbering from where ISD NodeType finishes.
             FIRST_NUMBER = ISD::BUILTIN_OP_END,
@@ -31,11 +31,11 @@ namespace llvm {
             TailCall,
 
             // Get the Higher 16 bits from a 32-bit immediate
-            // No relation with Cpu0 Hi register
+            // No relation with LoongArch Hi register
             Hi,
 
             // Get the Lower 16 bits from a 32-bit immediate
-            // No relation with Cpu0 Lo register
+            // No relation with LoongArch Lo register
             Lo,
 
             // Handle gp_rel (small data/bss sections) relocation.
@@ -58,21 +58,21 @@ namespace llvm {
 
             Sync
         };
-    } // End CPU0ISD namespace
+    } // End LoongArchISD namespace
 
 //===----------------------------------------------------------------------===//
 // TargetLowering Implementation
 //===----------------------------------------------------------------------===//
-    class Cpu0FunctionInfo;
-    class Cpu0Subtarget;
+    class LoongArchFunctionInfo;
+    class LoongArchSubtarget;
 
-    class Cpu0TargetLowering : public TargetLowering {
+    class LoongArchTargetLowering : public TargetLowering {
     public:
-        explicit Cpu0TargetLowering(const Cpu0TargetMachine &TM,
-                                    const Cpu0Subtarget &STI);
+        explicit LoongArchTargetLowering(const LoongArchTargetMachine &TM,
+                                    const LoongArchSubtarget &STI);
 
-        static const Cpu0TargetLowering *create(const Cpu0TargetMachine &TM,
-                                                const Cpu0Subtarget &STI);
+        static const LoongArchTargetLowering *create(const LoongArchTargetMachine &TM,
+                                                const LoongArchSubtarget &STI);
 
         // This method returns the name of a target specific DAG node.
         const char *getTargetNodeName(unsigned Opcode) const override;
@@ -88,9 +88,9 @@ namespace llvm {
         };
 
         // Subtarget Info
-        const Cpu0Subtarget &Subtarget;
+        const LoongArchSubtarget &Subtarget;
         // Cache the ABI from the TargetMachine, we use it everywhere.
-        const Cpu0ABIInfo &ABI;
+        const LoongArchABIInfo &ABI;
 
     private:
         // Lower Operand specifics
@@ -109,9 +109,9 @@ namespace llvm {
                             const SDLoc &dl, SelectionDAG &DAG) const override;
     };
 
-    const Cpu0TargetLowering *
-    createCpu0SETargetLowering(const Cpu0TargetMachine &TM,
-                               const Cpu0Subtarget &STI);
+    const LoongArchTargetLowering *
+    createLoongArchSETargetLowering(const LoongArchTargetMachine &TM,
+                               const LoongArchSubtarget &STI);
 
 } // End llvm namespace
 

@@ -750,7 +750,7 @@ addRegisterClass(MVT::i32, &LoongArch::GPRRegClass);
 
 + 编译测试
 
-​		编译步骤同1.5节，可以在CMake选项中添加-DLLVM_TARGETS_TO_BUILD=LoongArch指定编译目标，加快编译时间。编译完成后在bin目录下执行：
+​		编译步骤同1.5节，当然别忘了修改CMakeLists。可以在CMake选项中添加-DLLVM_TARGETS_TO_BUILD=LoongArch指定编译目标，加快编译时间。编译完成后在bin目录下执行：
 
 ```cmake
 ./llc -march=cpu0 -relocation-model=pic -filetype=asm ch3.bc -o ch3.cpu0.s
@@ -764,29 +764,139 @@ addRegisterClass(MVT::i32, &LoongArch::GPRRegClass);
 >
 >先安装：`sudo apt install lldb`
 >
->调成功了就把llvm/lib/MC/MCSubtargetInfo.cpp:210的
+>调成功了就把llvm/lib/MC/MCSubtargetInfo.cpp里的死代码`StringRef("+loongarch32")`改回  `FS/Feature`
 >
->`FeatureBits = getFeatures(CPU, StringRef("+cpu032II"), ProcDesc, ProcFeatures);`
->
->里的死代码`StringRef("+cpu032II")`改回  `FS`
 
 
 
 ## 2.2 添加汇编打印器
 
-​		本节将实现LoongArchAsmPrinter
+​		本节实现了LoongArchInstPrinter，继承自MCInstPrinter，用于将MCInst转换为合法的目标机器汇编代码输出。
+
++ **InstPrinter/LoongArchInstPrinter(.h/.cpp)**
+
+​		定义了指令、寄存器、别名、内存操作数等的打印格式，如下为内存操作数打印格式定义：
+
+```c++
+void LoongArchInstPrinter::printMemOperand(const MCInst *MI, int OpNum,
+                                      raw_ostream &O) {
+    // Load/Store 内存地址操作数 => $reg, imm
+    // 打印基址寄存器
+    printOperand(MI, OpNum, O);
+    O << ", ";
+    // 打印偏移立即数
+    printOperand(MI, OpNum+1, O);
+}
+```
+
+​		该方法将会打印出形如`"store $rd, $rj, 8"`格式的汇编代码。
+
+​		printMemOperand()会自动在需要打印内存操作数时调用，因为我们在LoongArchInstrInfo.td中将mem操作数的PrintMethod指定为了"printMemOperand"（如下），Tablegen会根据该信息在.inc文件中生成对该函数的调用。
+
+```c++
+def mem : Operand<iPTR> {
+  let PrintMethod = "printMemOperand";
+  let MIOperandInfo = (ops GPROut, simm12);
+  let EncoderMethod = "getMemEncoding";
+}
+```
+
++ **LoongArchMCInstLower(.h/.cpp)**
+
+​		用于将MI降低到MCInst。MI为LLVM IR经过指令选择后转换成的Triple指令表示形式，MI和MCInst相比只是多包含了一些高级信息，我们只需要在Lower()函数中将操作码和操作数从MI中提取出来放入MCInst的列表即可。
+
++ **MCTargetDesc/LoongArchBaseInfo.h**
+
+​		定义了MC经常使用的操作数状态标签
+
++ **MCTargetDesc/LoongArchMCAsmInfo(.h/.cpp)**
+
+​		定义汇编文件格式，如注释符号、字节/半字/字/双字标识等。
+
++ **MCTargetDesc/LoongArchMCTargetDesc(.h/.cpp)**
+
+​		使用注册方法LLVMInitializeLoongArchTargetMC()注册2.1节新增的Subtarget类、Instruction类...和2.2节新增的InstPrinter类，提供每个类的Create()方法。为loongarch32CPU注册默认Features。
+
+​		下图更直观地展示了MCTargetDesc注册过程的调用关系。
+
+​		createLoongArchMCInstrInfo()实例化LoongArchInstPrinter以实现指令的打印方法。
+
+​		createrLoongArchMCRegisterInfo()初始化定义于LoongArchRegisterInfo.td中的寄存器信息。
+
+​		createLoongArchMCSubtargetInfo()实例化MCSubtargetInfo并初始化LoongArch.td中定义的信息。
+
+​		createLoongArchMCAsmInfo()为TheLoongArchTarger目标注册了LoongArchAsmInfo对象。LoongArchAsmInfo继承自LLVM内置类MCAsmInfo。
+
+![2-2 文件关系图](2-2 文件关系图.png)
+
++ **LoongArchAsmPrinter(.h/.cpp)**
+
+​		AsmPrinter和InstPrinter的区别在于，InstPrinter将MCInst输出到目标文件，而AsmPrinter是直接将MI发射（从译码阶段变为执行阶段）到文件，不过实际上，在AsmPrinter的发射方法中也是将MI降低到MCInst之后再传到Streamer，Streamer又调用MCInstPrinter的接口。
+
+​		为什么要实现两个打印器呢？正如上文所说，当MI降低到MCInst后，会丢失许多信息，例如用于调试和汇编格式的信息，只剩下本质的操作码和操作数，所以需要另一个打印器来处理MI附带的这些信息。
+
+​		当准备好需要打印的指令之后，就会调起AsmPrinter的EmitInstruction()方法，根据我们上面用LLVMInitializeLoongArchTargetMC()注册的指令和寄存器信息打印出opcode和寄存器名。
+
++ **LoongArchISelLowering.cpp**
+
+​		添加设置函数对齐方式的代码。
+
++ **LoongArchMachineFunctionInfo.h**
+
+​		添加发射".set nora/ra"伪指令的函数，用于指定是否允许在指令别名中使用返回地址寄存器ra。
+
++ **编译测试**
+
+​		编译步骤同上，CMakeList和LLVMBuild文件内容修改请参考项目代码。
+
+​		输入命令：`./llc -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.loongarch.s`
+
+​		我们会收到新报错：`./llc: warning: target does not support generation of this file type!`
+
+​		报错提示无法将IR翻译为汇编代码，因为我们还没有实现IR DAG到机器代码DAG的转换，不过后端已经识别到打印器并尝试打印了。
 
 
 
 
 
-报错：`./llc: warning: target does not support generation of this file type!`
+把虚拟机的MC/MCSubtargetInfo copy 到目录下
 
 
 
-## 2_3
+## 2.3 IR DAG到机器代码DAG
 
-2_3重编译必须要手动执行ninja clean，否则会漏识别新更改。（好像是更改过.td文件，ninja识别不出来，就不会生成新的.inc文件。而我们的.cpp文件需要引用.inc文件里生成的变量。）
+​		2.2节实现了机器代码DAG到汇编代码的转换，本节将实现IR DAG到机器代码DAG的转换。我们需要把IR DAG中的所有节点都合法化，变为目标机器支持的节点。IR DAG到机器代码DAG属于指令选择的一部分，但实际上我们做的工作和“选择”无关，“选择”的工作已经由LLVM 内置的CodeGen工具根据我们提供的.td文件的信息实现了，我们只是继承它的实现类并处理一些特殊情况。
+
+​		使用命令`clang -target mips-unknown-linux-gnu -S test.c -emit-llvm -o `来查看test.c生成的IR代码都有什么DAG：
+
+```assembly
+define i32 @main() nounwind uwtable {
+%1 = alloca i32, align 4
+store i32 0, i32* %1
+ret i32 0
+}
+```
+
+​		如上所示，Test.c生成的IR 节点只有stroe和ret，LoongArchInstrInfo.td中提供的信息已足够。关于IR DAG的定义请看include/llvm/Target/TargetSelectionDAG.td。
+
++ **LoongArchTargetMachine.cpp**
+
+​		在pass设置中增加一个指令选择pass：
+
+```c++
+bool LoongArchPassConfig::addInstSelector() {
+    addPass(createLoongArchSEISelDag(getLoongArchTargetMachine(), getOptLevel()));
+    return false;
+}
+```
+
++ **LoongArchISelDAGToDAG(.h/.cpp)**
+
+​		Select(SDNode *Node)是指令选择的入口，在这里可以针对每个节点可能存在的特殊情况进行自定义，如果没有，则直接将该节点交给SelectCode(Node)，就会选择由.td文件（生成的Cpu0GenDAGISel.inc）决定的默认选择结果。
+
+​		SelectAddr()对帧索引、非对齐寻址等复杂地址操作中的地址操作数做处理。
+
+
 
 
 
