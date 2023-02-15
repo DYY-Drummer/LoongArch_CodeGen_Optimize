@@ -1,15 +1,15 @@
-//===-- Cpu0SEISelDAGToDAG.cpp - A DAG to DAG Inst Selector for Cpu0SE -*-C++ -*-===//
+//===-- LoongArchSEISelDAGToDAG.cpp - A DAG to DAG Inst Selector for LoongArchSE -*-C++ -*-===//
 //
-// Subclass of Cpu0DAGToDAGISel specialized for cpu032.
+// Subclass of LoongArchDAGToDAGISel specialized for loongarch32.
 //
 //===----------------------------------------------------------------------===//
 
-#include "Cpu0SEISelDAGToDAG.h"
+#include "LoongArchSEISelDAGToDAG.h"
 
-#include "MCTargetDesc/Cpu0BaseInfo.h"
-#include "Cpu0.h"
-#include "Cpu0MachineFunctionInfo.h"
-#include "Cpu0RegisterInfo.h"
+#include "MCTargetDesc/LoongArchBaseInfo.h"
+#include "LoongArch.h"
+#include "LoongArchMachineFunctionInfo.h"
+#include "LoongArchRegisterInfo.h"
 
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -29,17 +29,17 @@
 
 using namespace llvm;
 
-#define DEBUG_TYPE "cpu0-isel"
+#define DEBUG_TYPE "loongarch-isel"
 
-bool Cpu0SEDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
-    Subtarget = &static_cast<const Cpu0Subtarget &>(MF.getSubtarget());
-    return Cpu0DAGToDAGISel::runOnMachineFunction(MF);
+bool LoongArchSEDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
+    Subtarget = &static_cast<const LoongArchSubtarget &>(MF.getSubtarget());
+    return LoongArchDAGToDAGISel::runOnMachineFunction(MF);
 }
 
-void Cpu0SEDAGToDAGISel::processFunctionAfterISel(MachineFunction &MF) {
+void LoongArchSEDAGToDAGISel::processFunctionAfterISel(MachineFunction &MF) {
 }
 
-bool Cpu0SEDAGToDAGISel::trySelect(SDNode *Node) {
+bool LoongArchSEDAGToDAGISel::trySelect(SDNode *Node) {
     unsigned Opcode = Node->getOpcode();
     SDLoc DL(Node);
 
@@ -53,7 +53,7 @@ bool Cpu0SEDAGToDAGISel::trySelect(SDNode *Node) {
     return false;
 }
 
-FunctionPass *llvm::createCpu0SEISelDAG(Cpu0TargetMachine &TM,
+FunctionPass *llvm::createLoongArchSEISelDAG(LoongArchTargetMachine &TM,
                                         CodeGenOpt::Level OptLevel) {
-    return new Cpu0SEDAGToDAGISel(TM, OptLevel);
+    return new LoongArchSEDAGToDAGISel(TM, OptLevel);
 }

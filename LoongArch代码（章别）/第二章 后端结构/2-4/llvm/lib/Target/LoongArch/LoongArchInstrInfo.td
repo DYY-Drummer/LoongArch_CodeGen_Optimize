@@ -148,7 +148,13 @@ class JumpFR<bits<6> op, string instr_asm, SDNode OpNode,
 //@JumpFR }
 
 
-  
+// Return
+class RetBase<RegisterClass regClass> : JumpFR<0b010011, "jr", add, simm16, immSExt16, regClass> {
+    let isReturn = 1;
+    let isCodeGenOnly = 1;
+    let hasCtrlDep = 1;
+    let hasExtraSrcRegAllocReq = 1;
+}
 //===----------------------------------------------------------------------===//
 // Instruction definition
 //===----------------------------------------------------------------------===//
@@ -170,8 +176,9 @@ def ADDI_W   : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12, GPR>;
 
 /// Shift Instructions
 
+/// Jump Instructions
 def JIRL      : JumpFR<0b010011, "jirl", add, simm16, immSExt16, GPROut>;
-
+def RET      : RetBase<GPROut>;
 
 
 
@@ -181,7 +188,7 @@ let imm26=0 in
 
 //use JIRL ZERO, RA, 0 to replace IR instruction "ret", since LoongArch doesn't have "ret" like Mips
 let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
-  def PseudoRet  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>
+  def RetRA  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>
                   ,PseudoInstExpansion<(JIRL ZERO, RA, 0)>;
 
 //===----------------------------------------------------------------------===//

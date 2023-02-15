@@ -793,7 +793,7 @@ void LoongArchInstPrinter::printMemOperand(const MCInst *MI, int OpNum,
 
 ​		printMemOperand()会自动在需要打印内存操作数时调用，因为我们在LoongArchInstrInfo.td中将mem操作数的PrintMethod指定为了"printMemOperand"（如下），Tablegen会根据该信息在.inc文件中生成对该函数的调用。
 
-```c++
+```assembly
 def mem : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops GPROut, simm12);
@@ -839,7 +839,7 @@ def mem : Operand<iPTR> {
 
 + **LoongArchISelLowering.cpp**
 
-​		添加设置函数对齐方式的代码。
+​		设置函数对齐方式为2的3次方，即八字节。
 
 + **LoongArchMachineFunctionInfo.h**
 
@@ -867,17 +867,17 @@ def mem : Operand<iPTR> {
 
 ​		2.2节实现了机器代码DAG到汇编代码的转换，本节将实现IR DAG到机器代码DAG的转换。我们需要把IR DAG中的所有节点都合法化，变为目标机器支持的节点。IR DAG到机器代码DAG属于指令选择的一部分，但实际上我们做的工作和“选择”无关，“选择”的工作已经由LLVM 内置的CodeGen工具根据我们提供的.td文件的信息实现了，我们只是继承它的实现类并处理一些特殊情况。
 
-​		使用命令`clang -target mips-unknown-linux-gnu -S test.c -emit-llvm -o `来查看test.c生成的IR代码都有什么DAG：
+​		使用命令`clang -target mips-unknown-linux-gnu -S test.c -emit-llvm -o test.ll `生成可读格式的IR代码test.ll，来查看都有什么DAG 节点需要处理：
 
 ```assembly
-define i32 @main() nounwind uwtable {
-%1 = alloca i32, align 4
-store i32 0, i32* %1
-ret i32 0
+define dso_local i32 @main() #0 {
+  %1 = alloca i32, align 4
+  store i32 0, i32* %1, align 4
+  ret i32 0
 }
 ```
 
-​		如上所示，Test.c生成的IR 节点只有stroe和ret，LoongArchInstrInfo.td中提供的信息已足够。关于IR DAG的定义请看include/llvm/Target/TargetSelectionDAG.td。
+​		如上所示，Test.c生成的IR 节点只有stroe和ret，目前LoongArchInstrInfo.td中提供的信息已足够。关于IR DAG的定义请看include/llvm/Target/TargetSelectionDAG.td。
 
 + **LoongArchTargetMachine.cpp**
 
@@ -890,23 +890,99 @@ bool LoongArchPassConfig::addInstSelector() {
 }
 ```
 
-+ **LoongArchISelDAGToDAG(.h/.cpp)**
++ **LoongArch(SE)ISelDAGToDAG(.h/.cpp)**
 
 ​		Select(SDNode *Node)是指令选择的入口，在这里可以针对每个节点可能存在的特殊情况进行自定义，如果没有，则直接将该节点交给SelectCode(Node)，就会选择由.td文件（生成的Cpu0GenDAGISel.inc）决定的默认选择结果。
 
-​		SelectAddr()对帧索引、非对齐寻址等复杂地址操作中的地址操作数做处理。
+​		SelectAddr()对帧索引、非对齐寻址等复杂地址操作中的地址操作数做处理。与LoongArchInstrInfo.td中指定的复杂匹配函数是一致的：
 
+```assembly
+def addr : 
+  ComplexPattern<iPTR, 2, "SelectAddr", [frameindex], [SDNPWantParent]>;
+```
 
+​		ComplexPattern的定义如下：
 
+```c++
+//llvm/include/llvm/Target/TargetSelection.td
+// Complex patterns, e.g. X86 addressing mode, requires pattern matching code
+// in C++. NumOperands is the number of operands returned by the select function;
+// SelectFunc is the name of the function used to pattern match the max. pattern;
+// RootNodes are the list of possible root nodes of the sub-dags to match.
+// e.g. X86 addressing mode - def addr : ComplexPattern<4, "SelectAddr", [add]>;
+//
+class ComplexPattern<ValueType ty, int numops, string fn,
+list<SDNode> roots = [], list<SDNodeProperty> props = []> {
+ValueType Ty = ty;
+int NumOperands = numops;
+string SelectFunc = fn;
+list<SDNode> RootNodes = roots;
+list<SDNodeProperty> Properties = props;
+}
+```
 
+​		LoongArchSEISelDAGToDAG留下了loongarch32版本特性框架，这种子版本设计上文已说明过。
 
-报错：`LLVM ERROR: Cannot select: t6: ch = Cpu0ISD::Ret t4, Register:i32 $lr
-  t5: i32 = Register $lr`
-`In function: main`
++ **编译测试**
 
+​		输入命令：`./llc -march=loongarch -relocation-model=pic -filetype=asm test.bc -o`
 
+`test.loongarch.s`
 
-## 2_4
+​		新报错：
+
+```assembly
+LLVM ERROR: Cannot select: t6: ch = Cpu0ISD::Ret t4, Register:i32 $lr
+  t5: i32 = Register $lr
+  In function: main
+```
+
+​		新报错提示无法选择Ret指令，因为我们还没有完成Ret的寄存器操作数和返回值的处理。
+
+## 2.4 return指令寄存器
+
+​		使用命令：`/llc -march=mips -relocation-model=pic -filetype=asm test.bc -o -`可以查看Test.c生成的Mips汇编代码:
+
+```
+main: # @main
+...
+\# BB#0:
+addiu $sp, $sp, -8
+...
+jr $ra
+...
+.end main
+```
+
+​		可以看到，Mips使用`"jr $ra"`指令来处理return指令，寄存器ra是Mips架构中存放返回地址的专用寄存器，类似的，在LoongArch中我们使用指令`"jirl $rd, $rj, simm16"`来处理return指令：
+
+```assembly
+def : InstAlias<"jr $rj",                (JIRL      ZERO, GPROut:$rj, 0), 3>;
+```
+
+​		在上一节中，我们已经创建了匹配的机器代码DAG，但是还需解决两个问题：一，如何让LLVM将函数调用的返回地址保存在LoongArch指定的返回地址寄存器RA中；二，如何让LLVM在为虚拟寄存器分配物理寄存器时将指令中的虚拟寄存器rj映射到RA。
+
++ **LoongArchCallingConv.td**
+
+​		指定返回值寄存器为A0、A1
+
++ **LoongArchISelLowering(.h/.cpp)**
+
+​		实现了return指令的下降函数LowerReturn()，将ISD::ret下降为LoongArchISD::Ret，将DAG中的返回值（注意区分返回值和返回地址）复制给A0寄存器之后更新DAG的数据依赖链。如果此处不将A0关联到数据流上，在后边的优化Pass中，由于Ret使用的是RA寄存器，会误认为A0寄存器无用，从而把CopyToReg节点删掉，导致出错。
+
+​		其中analyzeReturn()用于处理返回值信息，检测是否符合ABI要求。"sret"是子程序返回指令的缩写。
+
++ **LoongArchMachineFunctionInfo.h**
+
+​		添加了值传参和返回值寄存器相关的函数，以及若干控制返回状态的flag。
+
++ **LoongArchSEInstrInfo(.h/.cpp)**
+
+​		实现伪指令RetRA展开，使用LoongArch::RET作为指令，RA为返回地址寄存器。
+
++ **编译测试**
+
+此处编译到 *Linking CXX executable bin/llvm-lto2* 时遇到了莫名其妙的Undefined Symbol问题，无法识别llvm::LoongArchTargetLowering::LoongArchCC::LoongArchCC。猜测是由于多线程编译时静态链接的问题，当链接器开始链接库时，库还没编译完成。删除整个Build目录并重新单线程编译后也没成功。
 
 使用O2级别的优化指令，可以生成只留下一个`ret`的简单lllvm IR程序用于检验我们的成果。
 
@@ -1022,3 +1098,35 @@ Machine Branch Probability Analysis
 
 
 ​		
+
+### GDB 调试 LLVM后端
+
+gdb ./llc
+
+set args -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.loongarch.s
+
+进入到lib/MC
+
+break MCSubtargetInfo.cpp:206
+
+回到bin目录下
+
+run
+
+```
+/llvm-project-llvmorg-10.0.0/llvm/lib/CodeGen/PrologEpilogInserter.cpp:1161（从这开始没出来过）
+/llvm-project-llvmorg-10.0.0/llvm/lib/CodeGen/PrologEpilogInserter.cpp:265
+/home/dyy/llvm-project-llvmorg-10.0.0/llvm/lib/CodeGen/MachineFunctionPass.cpp:73
+妈的好像是PrologEpilog的处理出了问题，但是LoongArchAsmPrinter.cpp没问题啊
+先做完到3.5再看能不能有输出
+```
+
+定位死循环位置：长时间continue后，ctrl+c暂停，输入下面命令可将debug信息输出到文件方便查看
+
+```
+(gdb) set logging file <file name>
+(gdb) set logging on //激活
+(gdb) set logging off //关闭
+```
+
+输入backtrace可查看当前调用函数的堆栈列表和所有父函数，检查是否一直困在某个父函数里。
