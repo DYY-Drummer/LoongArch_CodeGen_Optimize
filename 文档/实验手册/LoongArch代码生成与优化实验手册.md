@@ -4,7 +4,7 @@
 
 ## 写在前面
 
-​		LLVM项目开源历史悠久，但是网上却少有新手友好的开发教程，大多只停留在理论阶段，分析LLVM整体架构和工作原理。一是因为LLVM项目本身十分庞大，又属于底层开发，项目代码错综复杂且时常更改，编写一套完整的免费开发教程所需的精力和时间对于个人来说太过苛刻。二是因为LLVM后端代码的贡献者大多为各指令集架构的公司或LLVM官方人员，就算是为了学习编译器技术，也鲜少有业余程序员会需要从头到尾开发一个新的LLVM后端。
+​		LLVM项目开源历史悠久，但是网上却少有对新手友好的开发教程，大多只停留在理论阶段，分析LLVM整体架构和工作原理。一是因为LLVM项目本身十分庞大，又属于底层开发，项目代码错综复杂且时常更改，编写一套完整的免费开发教程所需的精力和时间对于个人来说太过苛刻。二是因为LLVM后端代码的贡献者大多为各指令集架构的公司或LLVM官方人员，就算是为了学习编译器技术，也鲜少有业余程序员会需要从头到尾开发一个新的LLVM后端。
 
 ​		虽然LLVM官方也提供了标准的后端开发说明手册，但是其过于晦涩难懂且忽略了太多细节，不适合新手作为自己开发第一个后端的参照，用作开发中关键词查询手册更合适。
 
@@ -533,7 +533,7 @@ extern "C" void LLVMInitializeLoongArchTargetInfo() {
 
 + **-DLLVM_CCACHE_BUILD=ON** 在需要rebuild的情况下（例如修改过CMakeLists），可以使用CCACHE加快编译。如果无需rebuild则增量编译就行了（只改了C++文件直接执行ninja即可，会自动识别需要重新编译的文件)。
 
-​		编译前半段可以使用`-j4`，后半段[20xx/27xx]涉及的库较大极有可能因为内存不足而宕机（大概率是在`Linking CXX executable bin/llvm-lto`这一步），此时输入Ctrl+C中断执行或者强制关机，使用`ninja -j1`，继续编译即可。最坏情况需要5个小时才能完成全部编译。
+​		编译前半段可以使用`-j4`，后半段[20xx/27xx]涉及的库较大极有可能因为内存不足而宕机（大概率是在`Linking CXX executable bin/llvm-lto2`这一步），此时输入Ctrl+C中断执行或者强制关机，使用`ninja -j1`，继续编译即可。最坏情况需要5个小时才能完成全部编译。
 
 ​		编译完成后，在build/bin目录下执行`./llc --version `，即可获取当前llvm支持的所有后端，其中就可以看见我们新添加的loongarch（如下图所示） 。注：如果指令llc前没加`./`,则调用的是Ubuntu环境中的llvm（如果你之前安装过Ubuntu提供的软件包的话）。
 
@@ -748,7 +748,7 @@ addRegisterClass(MVT::i32, &LoongArch::GPRRegClass);
 
 ​		同样，用于补充LoongArchRegisterInfo.td中无法描述的逻辑，提供了获取栈帧寄存器、保留寄存器、被调用者寄存器的接口。其中被调用者保存寄存器集合CSR_ILP32S_LP64S_SaveList来自于LoongArchGenRegisterInfo.inc，是llc根据LoongArchCallingConv.td中的CSR_ILP32S_LP64S定义创建的。
 
-+ 编译测试
++ **编译测试**
 
 ​		编译步骤同1.5节，当然别忘了修改CMakeLists。可以在CMake选项中添加-DLLVM_TARGETS_TO_BUILD=LoongArch指定编译目标，加快编译时间。编译完成后在bin目录下执行：
 
@@ -968,7 +968,7 @@ def : InstAlias<"jr $rj",                (JIRL      ZERO, GPROut:$rj, 0), 3>;
 
 + **LoongArchISelLowering(.h/.cpp)**
 
-​		实现了return指令的下降函数LowerReturn()，将ISD::ret下降为LoongArchISD::Ret，将DAG中的返回值（注意区分返回值和返回地址）复制给A0寄存器之后更新DAG的数据依赖链。如果此处不将A0关联到数据流上，在后边的优化Pass中，由于Ret使用的是RA寄存器，会误认为A0寄存器无用，从而把CopyToReg节点删掉，导致出错。
+​		实现了return指令的下降函数LowerReturn()，将ISD::ret下降为LoongArchISD::Ret，将DAG中的返回值（注意区分返回值和返回地址）复制给A0寄存器之后更新DAG的数据依赖链。如果此处不将A0关联到数据流上，在后边的优化Pass中，由于Ret使用的是RA寄存器，会误认为A0寄存器无用，从而把CopyToReg节点删掉，导致返回值出错。
 
 ​		其中analyzeReturn()用于处理返回值信息，检测是否符合ABI要求。"sret"是子程序返回指令的缩写。
 
@@ -982,51 +982,92 @@ def : InstAlias<"jr $rj",                (JIRL      ZERO, GPROut:$rj, 0), 3>;
 
 + **编译测试**
 
-此处编译到 *Linking CXX executable bin/llvm-lto2* 时遇到了莫名其妙的Undefined Symbol问题，无法识别llvm::LoongArchTargetLowering::LoongArchCC::LoongArchCC。猜测是由于多线程编译时静态链接的问题，当链接器开始链接库时，库还没编译完成。删除整个Build目录并重新单线程编译后也没成功。
+​		查看2.3节中生成的.ll文件，发现IR中存在一条Store语句，由于我们尚未实现store指令，为了使汇编输出成功，可以在编译时使用O2级别优化选项生成只留下一个`ret`的简单lllvm IR程序用于检验我们的成果：	`clang -O2 -target mips-unknown-linux-gnu -c ch2.c -emit-llvm -o ch2.bc`。
 
-使用O2级别的优化指令，可以生成只留下一个`ret`的简单lllvm IR程序用于检验我们的成果。
-
-+ 生成可查看的ll文件：
-
-​	`clang -O2 -target mips-unknown-linux-gnu -S ch2.c -emit-llvm -o ch2.ll`
-
-​	生成.bc文件：
-
-​	`clang -O2 -target mips-unknown-linux-gnu -c ch2.c -emit-llvm -o ch2.bc`
-
-
-
-+ 使用llc指令，不指定输出路径可以直接输出到终端显示
+​		使用llc指令输出汇编代码，不指定输出路径可以直接输出到终端显示：
 
 ​	`build/bin/llc -march=cpu0 -relocation-model=pic -filetype=asm ch2.bc -o -`
 
-​	能看到，已经正常生成了 `ret $lr` 指令。也能看到返回值 0 通过 `addiu $2, $zero, 0` 这条指令	放到了寄存器 `$2` 中，`$2` 就是 `%V0`，我们在 Cpu0RegisterInfo.td 中做过定义。 
+```assembly
+	.text
+	.section .mdebug.abi ilp32s
+	.previous
+	.file	"test.c"
+	.globl	main                    # -- Begin function main
+	.p2align	1
+	.type	main,@function
+	.ent	main                    # @main
+main:
+	.frame	$r3,0,$r1
+	.mask 	0x00000000,0
+	.set	noreorder
+	.set	nomacro
+# %bb.0:
+	addi.w	$r4, $r0, 0
+	jr	$r1
+	.set	macro
+	.set	reorder
+	.end	main
+$func_end0:
+	.size	main, ($func_end0)-main
+                                        # -- End function
+	.ident	"clang version 10.0.0-4ubuntu1 "
+	.section	".note.GNU-stack","",@progbits
+```
 
-​	通过指定 `-print-before-all` 和 `-print-after-all` 参数到 llc，可以打印出 DAG 指令选择前后	的状态：
+​		能看到，已经正常生成了 `jr	$r1` 指令。也能看到返回值 0 通过 `addi.w	$r4, $r0, 0` 这条指令放到了寄存器 `$r4` 中，`$r4` 就是 `A0`。
+
+​		为了捋清从IR到LoongArch汇编的转换过程，我们指定 `-print-before-all` 和 `-print-after-all` 参数，打印出指令在各个Pass执行前后的状态：
 
 ​	`build/bin/llc -march=cpu0 -relocation-model=pic -filetype=asm -print-before-all `
 
 ​	`-print-after-all ch2.bc -o -`
 
+​		从打印出来的信息可以看到，在selection DAG合法化阶段，LLVM遇到`ret`关键字时就调用LoongArchISelLowering.cpp中的`LowerReturn()`方法，创建DAG节点`LoongArchISD::Ret`；在指令选择阶段，`LoongArchISD::Re`t被伪指令RetRA代替；在Post-RA伪指令拓展阶段，根据LoongArchSEInstrInfo.cpp中的`expandPostRAPseudo()`将RetRA扩展为`LoongArch::RET $ra`。最后在汇编输出阶段，将`LoongArch::RET`根据LoongArchInstroInfo.td（实际上是TableGen根据该.td生成的.inc）中定义的翻译成`jr $ra` 。
 
-
-信息如:
-
-```llvm
-bb.0 (%ir-block.0):
-  $v0 = ADDiu $zero, 0
-  RET $lr
-```
+​		返回值常量0被根据`def : Pat<(i32 immSExt12:$in),(ADDI_W ZERO, imm:$in)>;`的匹配模式转换成“`addi.w	$r4, $r0, 0`”。
 
 
 
-## 2_5
+## 2.5 函数头/尾
 
-+ prologue 和 epilogue 是函数调用开始时和结束时所作的准备工作，主要和创建和清理堆栈有关。
+​		函数调用开始和结束时的堆栈和寄存器等信息通常只能在运行时才能确定，不能通过死代码用TableGen静态生成。用于声明这些信息的段落称为函数头（Prologue ）和函数尾（Epilogue ），它们在所有指令翻译完后才执行插入，不属于指令翻译的一部分，而是堆栈使用的约定，例如由ABI指定的被调用者保存寄存器必须在进入函数时将值保存到内存，并在退出函数时从内存中恢复。
 
-+ spill
 
-  当寄存器数目不足以分配某些变量时，就必须将这些变量溢出（临时存入）到内存中，该过程成为spill。
+
++ **LoongArchSEFrameLowering.cpp**
+
+  实现发射函数头尾的函数：emitPrologue()和emitEpilogue()。
+
+  + emitPrologue()
+
+    获取栈信息，通过根据栈的大小减小栈指针SP，为函数开辟栈空间；将被调用者保存寄存器保存到栈中；遍历指令列表，找到最后一个保存被调用者寄存器的值到内存的指令的下一条指令，然后为每个被调用者保存寄存器输出.cfi_offset伪指令。指令`.cfi_offset register, offset`指示寄存器register的上一个值被保存在了CFA中偏移量为offset的地方，相当于*(CFA + offset) = register(pre_value)。.cfi_startproc和.cfi_endproc是每个函数的入口和结束处的标签。
+
+  + emitEpilogue()
+
+    将被调用者保存寄存器的先前值复原，并根据栈大小增加栈指针，销毁栈空间。不过RA、FP这些寄存器其实也是上文环境的一部分，在执行return指令的时候会被隐式地清理，所以这里我们只需要调整栈空间就行了。
+
+  + hasReservedCallFrame()
+
+    由于栈操作指令中立即数最大为16位，所以需要检测最大栈空间偏移是否小于16位立即数且栈中无可变大小的数据结构。
+
+  + determineCalleeSaves()和 setAliasRegs()
+
+    当需要的虚拟寄存器数目大于空闲的物理寄存器数目时，就必须将一些被占用的物理寄存器溢出（spill）到内存中。这两个函数就是用于在插入函数头/尾之前判断需要溢出的被调用者保存寄存器，LLVM提供了一个RegScavenger类来负责这项工作。
+
+    
+
+    
+
+​		
+
+
+
+prologue 和 epilogue 是函数调用开始时和结束时所作的准备工作，主要和创建和清理堆栈有关。
+
+
+
+
 
 + 由于指令定长（32bit），所以留给立即数imm的位域最多为16-bit，超过16-bit的立即数需要发射多余一条的指令来处理计算，转换成`寄存器＋寄存器`的形式以容纳32-bit数。如结合lui（*load upper immediate*，加载高16位）和ori（*or immediate*，加载低16位）来组合成32-bit的立即数。
 

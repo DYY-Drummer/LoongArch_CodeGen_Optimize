@@ -140,8 +140,8 @@ let isBranch=1, isTerminator=1, isBarrier=1, imm16=0, hasDelaySlot = 1,
     isIndirectBranch = 1 in
 class JumpFR<bits<6> op, string instr_asm, SDNode OpNode,
              Operand Od, PatLeaf imm_type, RegisterClass RC>:
-    Fmt2RI16<op, (outs), (ins RC:$rj),
-     !strconcat(instr_asm, "\t$rj"), [(brind RC:$rj)], IIBranch> {
+    Fmt2RI16<op, (outs RC:$rd), (ins RC:$rj, Od:$imm16),
+     !strconcat(instr_asm, "\t$rd, $rj, $imm16"), [(set RC:$rd, (OpNode RC:$rj, imm_type:$imm16))], IIBranch> {
   let rd = 0;
   let imm16 = 0;
 }
@@ -177,7 +177,7 @@ def ADDI_W   : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12, GPR>;
 /// Shift Instructions
 
 /// Jump Instructions
-//def JIRL      : JumpFR<0b010011, "jirl", add, simm16, immSExt16, GPROut>;
+def JIRL      : JumpFR<0b010011, "jirl", add, simm16, immSExt16, GPROut>;
 def RET      : RetBase<GPROut>;
 
 
@@ -188,8 +188,8 @@ let imm26=0 in
 
 //use JIRL ZERO, RA, 0 to replace IR instruction "ret", since LoongArch doesn't have "ret" like Mips
 let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
-  def RetRA  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>;
-//                  ,PseudoInstExpansion<(JIRL ZERO, RA, 0)>;
+  def RetRA  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>
+                  ,PseudoInstExpansion<(JIRL ZERO, RA, 0)>;
 
 //===----------------------------------------------------------------------===//
 //  Arbitrary patterns that map to one or more instructions
@@ -213,6 +213,6 @@ def : Pat<(i32 immSExt12:$in),
 //      int EmitPriority = Emit;
 //  }
 //===----------------------------------------------------------------------===//
-//def : InstAlias<"jr $rj",                (JIRL      ZERO, GPROut:$rj, 0), 3>;
-//def : InstAlias<"jr ${offset}(${rj})",   (JIRL      ZERO, GPROut:$rj, simm16:$offset)>;
-//def : InstAlias<"ret",                   (JIRL      ZERO,      RA, 0), 4>;
+def : InstAlias<"jr $rj",                (JIRL      ZERO, GPROut:$rj, 0), 3>;
+def : InstAlias<"jr ${offset}(${rj})",   (JIRL      ZERO, GPROut:$rj, simm16:$offset)>;
+def : InstAlias<"ret",                   (JIRL      ZERO,      RA, 0), 4>;
