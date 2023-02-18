@@ -36,12 +36,27 @@ include "LoongArchInstrFormats.td"
 // Instruction operand types
 
 // Signed Operand
+def simm20      : Operand<i32> {
+let DecoderMethod= "DecodeSimm20";
+}
 def simm16      : Operand<i32> {
   let DecoderMethod= "DecodeSimm16";
 }
 def simm12      : Operand<i32> {
 let DecoderMethod= "DecodeSimm12";
 }
+//unsigned Operand
+def uimm20 : Operand<i32> {
+let PrintMethod = "printUnsignedImm";
+}
+def uimm16 : Operand<i32> {
+let PrintMethod = "printUnsignedImm";
+}
+def uimm12 : Operand<i32> {
+let PrintMethod = "printUnsignedImm";
+}
+
+def shamt  : Operand<i32>;
 
 // Address operand
 def mem : Operand<iPTR> {
@@ -55,6 +70,36 @@ def mem : Operand<iPTR> {
 // e.g. addi.w
 def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
 def immSExt12  : PatLeaf<(imm), [{ return isInt<12>(N->getSExtValue()); }]>;
+
+// Transformation Function: get the lower 12 bits.
+def LO12 : SDNodeXForm<imm, [{
+return getImm(N, N->getZExtValue() & 0xfff);
+}]>;
+
+// Transformation Function: get the higher 20 bits.
+def HI20 : SDNodeXForm<imm, [{
+return getImm(N, (N->getZExtValue() >> 12) & 0xfffff);
+}]>;
+
+// Node immdiate fits as 12-bit zero extended on target immediate.
+// The LO12 param means that only the lower 12 bits of the node
+// immediate are caught.
+// e.g. addi.w
+def immZExt12 : PatLeaf<(imm), [{
+if (N->getValueType(0) == MVT::i32)
+    return (uint32_t)N->getZExtValue() == (unsigned short)N->getZExtValue();
+else
+    return (uint64_t)N->getZExtValue() == (unsigned short)N->getZExtValue();
+}], LO12>;
+
+// Immediate can be loaded with LU12I.W (32-bit int with lower 12-bit cleared).
+def immLow12Zero : PatLeaf<(imm), [{
+int64_t Val = N->getSExtValue();
+return isInt<32>(Val) && !(Val & 0xfff);
+}]>;
+
+// shamt field must fit in 5 bits, e.g. SLLI.W.
+def immZExt5 : ImmLeaf<i32, [{ return Imm == (Imm & 0x1f); }]>;
 
 // LoongArch Address Mode! SDNode frameindex could possibily be a match
 // since load and store instructions from stack used it.
@@ -86,6 +131,17 @@ def store_a         : AlignedStore<store>;
 // Instructions specific format
 //===----------------------------------------------------------------------===//
 
+// Arithmetic and logical instructions with 3 register operands
+class ALU_3R<bits<17> op, string instr_asm, SDNode OpNode,
+        InstrItinClass itin, RegisterClass RC, bit isComm = 0>
+: Fmt3R<op, (outs GPROut:$rd), (ins RC:$rj, RC:$rk),
+!strconcat(instr_asm, "\t$rd, $rj, $rk"),
+[(set GPROut:$rd, (OpNode RC:$rj, RC:$rk))], itin> {
+let shamt = 0;
+let isCommutable = isComm;
+let isReMaterializable = 1;
+}
+
 // Arithmetic and logical instructions with 2 register operands.
 class ALU_2RI12<bits<10> op, string instr_asm, SDNode OpNode,
                   Operand Od, PatLeaf imm_type, RegisterClass RC> :
@@ -95,6 +151,14 @@ class ALU_2RI12<bits<10> op, string instr_asm, SDNode OpNode,
   let isReMaterializable = 1;
 }
 
+// Load Upper 20-bit Immediate
+class LoadUpper<bits<7> op, string instrAsm, RegisterClass RC, Operand Imm>
+: Fmt1RI20<op, (outs RC:$rd), (ins Imm:$imm20),
+!strconcat(instrAsm, "\t$rd, $imm20"), [], IIAlu> {
+let isReMaterializable = 1;
+}
+
+//Memory operation base class
 class FMem<bits<10> op, dag outs, dag ins, string asmstr, list<dag> pattern,
           InstrItinClass itin>: Fmt2RI12<op, outs, ins, asmstr, pattern, itin> {
   bits<17> addr; //addr include 5-bit rj and 12-bit simm
@@ -104,7 +168,6 @@ class FMem<bits<10> op, dag outs, dag ins, string asmstr, list<dag> pattern,
 }
 
 // Memory Load/Store
-
 let canFoldAsLoad = 1 in
 class LOAD_2RI12<bits<10> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
                  Operand MemOpnd, bit Pseudo>:
@@ -140,8 +203,8 @@ let isBranch=1, isTerminator=1, isBarrier=1, imm16=0, hasDelaySlot = 1,
     isIndirectBranch = 1 in
 class JumpFR<bits<6> op, string instr_asm, SDNode OpNode,
              Operand Od, PatLeaf imm_type, RegisterClass RC>:
-    Fmt2RI16<op, (outs RC:$rd), (ins RC:$rj, Od:$imm16),
-     !strconcat(instr_asm, "\t$rd, $rj, $imm16"), [(set RC:$rd, (OpNode RC:$rj, imm_type:$imm16))], IIBranch> {
+    Fmt2RI16<op, (outs), (ins RC:$rj),
+     !strconcat(instr_asm, "\t$rj"), [(brind RC:$rj)], IIBranch> {
   let rd = 0;
   let imm16 = 0;
 }
@@ -171,13 +234,18 @@ def ST_W     : StoreM32<0b0010100110, "st.w",  store_a>; //store bit [31:0] of $
 /// Arithmetic Instructions (ALU Immediate)
 // IR "add" defined in include/llvm/Target/TargetSelectionDAG.td, line 315 (def add).
 def ADDI_W   : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12, GPR>;
+def ORI      : ALU_2RI12<0b0000001110, "ori", or, uimm12, immZExt12, GPR>;
+def LU12I_W  : LoadUpper<0b0001010, "lu12i.w", GPROut, uimm20>;
 
-/// Arithmetic Instructions (3-Operand, R-Type)
+/// Arithmetic Instructions (3-Operand, 3R-Type)
+let Predicates = [DisableOverflow] in {
+def ADD_W   : ALU_3R<0b00000000000100000, "add.w", add, IIAlu, GPR, 1>;
+}
 
 /// Shift Instructions
 
 /// Jump Instructions
-def JIRL      : JumpFR<0b010011, "jirl", add, simm16, immSExt16, GPROut>;
+//def JIRL      : JumpFR<0b010011, "jirl", add, simm16, immSExt16, GPROut>;
 def RET      : RetBase<GPROut>;
 
 
@@ -188,18 +256,22 @@ let imm26=0 in
 
 //use JIRL ZERO, RA, 0 to replace IR instruction "ret", since LoongArch doesn't have "ret" like Mips
 let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
-  def RetRA  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>
-                  ,PseudoInstExpansion<(JIRL ZERO, RA, 0)>;
+  def RetRA  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>;
+//                  ,PseudoInstExpansion<(JIRL ZERO, RA, 0)>;
 
 //===----------------------------------------------------------------------===//
 //  Arbitrary patterns that map to one or more instructions
 //===----------------------------------------------------------------------===//
 
 // Small immediates
-def : Pat<(i32 immSExt12:$in),
-          (ADDI_W ZERO, imm:$in)>;
+def : Pat<(i32 immSExt12:$in), (ADDI_W ZERO, imm:$in)>;
 
+def : Pat<(i32 immZExt12:$in), (ORI ZERO, imm:$in)>;
 
+def : Pat<(i32 immLow12Zero:$in), (LU12I_W (HI20 imm:$in))>;
+
+// Arbitrary immediates
+def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;
 //===----------------------------------------------------------------------===//
 //  Instruction aliases
 //===----------------------------------------------------------------------===//
@@ -213,6 +285,6 @@ def : Pat<(i32 immSExt12:$in),
 //      int EmitPriority = Emit;
 //  }
 //===----------------------------------------------------------------------===//
-def : InstAlias<"jr $rj",                (JIRL      ZERO, GPROut:$rj, 0), 3>;
-def : InstAlias<"jr ${offset}(${rj})",   (JIRL      ZERO, GPROut:$rj, simm16:$offset)>;
-def : InstAlias<"ret",                   (JIRL      ZERO,      RA, 0), 4>;
+//def : InstAlias<"jr $rj",                (JIRL      ZERO, GPROut:$rj, 0), 3>;
+//def : InstAlias<"jr ${offset}(${rj})",   (JIRL      ZERO, GPROut:$rj, simm16:$offset)>;
+//def : InstAlias<"ret",                   (JIRL      ZERO,      RA, 0), 4>;

@@ -1033,7 +1033,7 @@ $func_end0:
 
 ​		函数调用开始和结束时的堆栈和寄存器等信息通常只能在运行时才能确定，不能通过死代码用TableGen静态生成。用于声明这些信息的段落称为函数头（Prologue ）和函数尾（Epilogue ），它们在所有指令翻译完后才执行插入，不属于指令翻译的一部分，而是堆栈使用的约定，例如由ABI指定的被调用者保存寄存器必须在进入函数时将值保存到内存，并在退出函数时从内存中恢复。
 
-
+### 2.5.1 栈相关操作
 
 + **LoongArchSEFrameLowering.cpp**
 
@@ -1055,37 +1055,56 @@ $func_end0:
 
     当需要的虚拟寄存器数目大于空闲的物理寄存器数目时，就必须将一些被占用的物理寄存器溢出（spill）到内存中。这两个函数就是用于在插入函数头/尾之前判断需要溢出的被调用者保存寄存器，LLVM提供了一个RegScavenger类来负责这项工作。
 
-    
++ **LoongArchMachineFunctionInfo.h**
 
-    
+​		添加与return指令和堆栈有关的属性的set/get方法，例如最大栈空间，是否调用LLVM异常处理内置函数等。
 
-​		
++ **LoongArchSEInstrInfo(.h.cpp)**
+
+​		应emitPrologue()为本地变量开拓栈空间的需要，实现调整栈指针的函数adjustStackPtr()，即将栈指针加上栈大小（负数）：`addi.w $SP, $SP, -stacksize`，类似的，当函数调用结束销毁栈空间时，emitEpilogue()将输出`addi.w $SP, $SP, stacksize`。
+
+​		但是我们的加法指令ADDI.W只支持12位立即数，如果偏移量大于12位立即数的范围，则无法只用一条指令完成SP的加法，所以又增加了loadImmediate()辅助方法来在offset较大时结合使用LU12I.W和ORI指令，将超过12位的立即数加到寄存器中。其中使用了R21保留寄存器作为临时辅助寄存器进行计算。
+
++ **LoongArchInstrInfo.td**
+
+​		添加有/无符号12/20位立即数的匹配规则，LU12I.W和ORI指令描述，以及处理大立即数的指令组合方式：LU12I.W负责加载高20位立即数，ORI负责加载低12位立即数。
+
+​		注意，在没有另行指定优先级的情况下，当某条指令同时符合多条匹配规则时，LLVM会根据.td文件中规则的出现顺序选择第一条符合的规则。对于不超过12位的立即数，ORI和ADDI_W显然都能处理，为了让编译器选择ADDI_W指令而不是ORI指令，定义时需要注意将ADDI_W放在ORI前面。
+
+```assembly
+// 小立即数的处理方式
+def : Pat<(i32 immSExt12:$in), (ADDI_W ZERO, imm:$in)>;
+def : Pat<(i32 immZExt12:$in), (ORI ZERO, imm:$in)>;
+def : Pat<(i32 immLow12Zero:$in), (LU12I_W (HI20 imm:$in))>;
+
+// 适合任意立即数的处理方式
+def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;
+```
+
+​	
+
+### 2.5.2 本地变量存储操作
 
 
-
-prologue 和 epilogue 是函数调用开始时和结束时所作的准备工作，主要和创建和清理堆栈有关。
-
-
-
-
-
-+ 由于指令定长（32bit），所以留给立即数imm的位域最多为16-bit，超过16-bit的立即数需要发射多余一条的指令来处理计算，转换成`寄存器＋寄存器`的形式以容纳32-bit数。如结合lui（*load upper immediate*，加载高16位）和ori（*or immediate*，加载低16位）来组合成32-bit的立即数。
 
 + 用ch3_largeframe.cpp测试大栈
 
 + 输出：
 
-  %bb.0:
+  
 
-          lui	$1, 36864
-          addiu	$1, $1, 32760
-          addu	$sp, $sp, $1
-          addiu	$2, $zero, 0
-          st	$2, 1879015428($sp)
-          lui	$1, 28672
-          addiu	$1, $1, -32760
-          addu	$sp, $sp, $1
-          ret	$lr
+  ```assembly
+  %bb.0:
+  	lui	$1, 36864
+      addiu	$1, $1, 32760
+      addu	$sp, $sp, $1
+      addiu	$2, $zero, 0
+      st	$2, 1879015428($sp)
+      lui	$1, 28672
+      addiu	$1, $1, -32760
+      addu	$sp, $sp, $1
+      ret	$lr
+  ```
 
 + 查看pass的执行流程`./llc -march=cpu0 -relocation-model=pic -filetype=asm ch2.bc -debug-pass=Structure -o -`，更多信息在CodeGen/Passes.h中
 

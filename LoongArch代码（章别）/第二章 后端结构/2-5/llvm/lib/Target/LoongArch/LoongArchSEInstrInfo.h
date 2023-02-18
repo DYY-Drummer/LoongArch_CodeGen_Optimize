@@ -23,6 +23,16 @@ namespace llvm {
         // Expand Pseudo instructions into real backend instructions
         bool expandPostRAPseudo(MachineInstr &MI) const override;
 
+        // Adjust SP by Amount bytes.
+        void adjustStackPtr(unsigned SP, int64_t Amount, MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator I) const override;
+        // Emit a series of instructions to load an immediate. If NewImm is a
+        // non-NULL parameter, the last instruction is not emitted, but instead
+        // its immediate operand is returned in NewImm.
+        unsigned loadImmediate(int64_t Imm, MachineBasicBlock &MBB,
+                               MachineBasicBlock::iterator II, const DebugLoc &DL,
+                               unsigned *NewImm) const;
+
     private:
         void expandRetRA(MachineBasicBlock &MBB, MachineBasicBlock::iterator I) const;
     };
