@@ -1085,7 +1085,13 @@ def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;
 
 ### 2.5.2 本地变量存储操作
 
++ **LoongArchRegisterInfo.cpp**
 
+​		由于到了低级的MCInst层后，栈空间大小等高级信息已经消失，所有参数的引用都是一个负数的帧索引（Frame Index)，指向一个虚拟的栈槽（例如-4，-8）。我们需要将该帧索引删除，替换为等价的“寄存器-偏移”对，来计算参数的真实地址。
+
+​		在“指令选择”和“寄存器分配”pass完成后，对于每一条引用了栈槽中的数据的指令，都会调用eliminateFrameIndex()方法，通过`spOffset = MF.getFrameInfo()->getObjectOffset(FrameIndex)`计算对象相对于栈指针SP的相对偏移，以`$SP, offset`的形式表示其真实地址。
+
+​		其中，输出参数、指向动态分配的栈空间的指针和全局寄存器，本就总是以相对于SP的方式引用的，不需要进行该转换；而输入参数、被调用者保存寄存器和局部变量等则需要进行转换。
 
 + 用ch3_largeframe.cpp测试大栈
 
