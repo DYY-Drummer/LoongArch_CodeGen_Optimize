@@ -35,6 +35,7 @@ add_llvm_target(LoongArchCodeGen
   LoongArchMCInstLower.cpp
   LoongArchISelDAGToDAG.cpp
   LoongArchSEISelDAGToDAG.cpp
+  LoongArchAnalyzeImmediate.cpp
   
   LINK_COMPONENTS
   Analysis

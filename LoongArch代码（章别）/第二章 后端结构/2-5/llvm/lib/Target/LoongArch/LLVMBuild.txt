@@ -53,7 +53,7 @@ required_libraries =
                      SelectionDAG
                      Support
                      Target
-		             AsmPrinter
+		     AsmPrinter
                      LoongArchAsmPrinter
 # end of required_libraries
 

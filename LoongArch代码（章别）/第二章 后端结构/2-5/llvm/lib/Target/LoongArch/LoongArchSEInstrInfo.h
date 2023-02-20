@@ -23,6 +23,20 @@ namespace llvm {
         // Expand Pseudo instructions into real backend instructions
         bool expandPostRAPseudo(MachineInstr &MI) const override;
 
+        void storeRegToStack(MachineBasicBlock &MBB,
+                             MachineBasicBlock::iterator MI,
+                             unsigned SrcReg, bool isKill, int FrameIndex,
+                             const TargetRegisterClass *RC,
+                             const TargetRegisterInfo *TRI,
+                             int64_t Offset) const override;
+
+        void loadRegFromStack(MachineBasicBlock &MBB,
+                              MachineBasicBlock::iterator MI,
+                              unsigned DestReg, int FrameIndex,
+                              const TargetRegisterClass *RC,
+                              const TargetRegisterInfo *TRI,
+                              int64_t Offset) const override ;
+
         // Adjust SP by Amount bytes.
         void adjustStackPtr(unsigned SP, int64_t Amount, MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator I) const override;

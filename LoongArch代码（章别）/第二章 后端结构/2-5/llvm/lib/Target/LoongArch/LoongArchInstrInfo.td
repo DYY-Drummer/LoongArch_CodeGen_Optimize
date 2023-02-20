@@ -33,7 +33,11 @@ include "LoongArchInstrFormats.td"
 //===----------------------------------------------------------------------===//
 // LoongArch Operand, Complex Patterns and Transformations Definitions.
 //===----------------------------------------------------------------------===//
+
 // Instruction operand types
+
+class LoongArchInstAlias<string Asm, dag Result, bit Emit = 0b1> :
+InstAlias<Asm, Result, Emit>;
 
 // Signed Operand
 def simm20      : Operand<i32> {
@@ -137,12 +141,13 @@ class ALU_3R<bits<17> op, string instr_asm, SDNode OpNode,
 : Fmt3R<op, (outs GPROut:$rd), (ins RC:$rj, RC:$rk),
 !strconcat(instr_asm, "\t$rd, $rj, $rk"),
 [(set GPROut:$rd, (OpNode RC:$rj, RC:$rk))], itin> {
-let shamt = 0;
+
 let isCommutable = isComm;
 let isReMaterializable = 1;
 }
 
 // Arithmetic and logical instructions with 2 register operands.
+
 class ALU_2RI12<bits<10> op, string instr_asm, SDNode OpNode,
                   Operand Od, PatLeaf imm_type, RegisterClass RC> :
     Fmt2RI12<op, (outs GPROut:$rd), (ins RC:$rj, Od:$imm12),
@@ -150,6 +155,21 @@ class ALU_2RI12<bits<10> op, string instr_asm, SDNode OpNode,
      [(set GPROut:$rd, (OpNode RC:$rj, imm_type:$imm12))], IIAlu> {
   let isReMaterializable = 1;
 }
+
+// Shifts
+class shift_rotate_imm<bits<17> op, bits<4> isRotate, string instr_asm,
+        SDNode OpNode, PatFrag PF, Operand ImmOperand,
+RegisterClass RC>:
+Fmt2RI5<op, (outs GPROut:$rd), (ins RC:$rj, ImmOperand:$imm5),
+!strconcat(instr_asm, "\t$rd, $rj, $imm5"),
+[(set GPROut:$rd, (OpNode RC:$rj, PF:$imm5))], IIAlu> {
+
+}
+
+// 32-bit shift instructions.
+class shift_rotate_imm32<bits<17> op, bits<4> isRotate, string instr_asm,
+        SDNode OpNode>:
+shift_rotate_imm<op, isRotate, instr_asm, OpNode, immZExt5, shamt, GPR>;
 
 // Load Upper 20-bit Immediate
 class LoadUpper<bits<7> op, string instrAsm, RegisterClass RC, Operand Imm>
@@ -237,12 +257,13 @@ def ADDI_W   : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12, GPR>;
 def ORI      : ALU_2RI12<0b0000001110, "ori", or, uimm12, immZExt12, GPR>;
 def LU12I_W  : LoadUpper<0b0001010, "lu12i.w", GPROut, uimm20>;
 
-/// Arithmetic Instructions (3-Operand, 3R-Type)
+/// Arithmetic Instructions (3-Operand, 3Register-Type)
 let Predicates = [DisableOverflow] in {
-def ADD_W   : ALU_3R<0b00000000000100000, "add.w", add, IIAlu, GPR, 1>;
+def ADD_W    : ALU_3R<0b00000000000100000, "add.w", add, IIAlu, GPR, 1>;
 }
 
 /// Shift Instructions
+def SLLI_W : shift_rotate_imm32<0b00000000010000001, 0x00, "slli.w", shl>;
 
 /// Jump Instructions
 //def JIRL      : JumpFR<0b010011, "jirl", add, simm16, immSExt16, GPROut>;
@@ -259,22 +280,13 @@ let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
   def RetRA  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>;
 //                  ,PseudoInstExpansion<(JIRL ZERO, RA, 0)>;
 
-//===----------------------------------------------------------------------===//
-//  Arbitrary patterns that map to one or more instructions
-//===----------------------------------------------------------------------===//
 
-// Small immediates
-def : Pat<(i32 immSExt12:$in), (ADDI_W ZERO, imm:$in)>;
 
-def : Pat<(i32 immZExt12:$in), (ORI ZERO, imm:$in)>;
-
-def : Pat<(i32 immLow12Zero:$in), (LU12I_W (HI20 imm:$in))>;
-
-// Arbitrary immediates
-def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;
 //===----------------------------------------------------------------------===//
 //  Instruction aliases
 //===----------------------------------------------------------------------===//
+def : LoongArchInstAlias<"move $dst, $src",
+(ADD_W GPROut:$dst, GPROut:$src, ZERO), 1>;
 //  class InstAlias<string Asm, dag Result, int Emit = 0b1> {
 //      string AsmString = Asm;      // The .s format to match the instruction with.
 //      dag ResultInst = Result;     // The MCInst to generate.
@@ -288,3 +300,17 @@ def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;
 //def : InstAlias<"jr $rj",                (JIRL      ZERO, GPROut:$rj, 0), 3>;
 //def : InstAlias<"jr ${offset}(${rj})",   (JIRL      ZERO, GPROut:$rj, simm16:$offset)>;
 //def : InstAlias<"ret",                   (JIRL      ZERO,      RA, 0), 4>;
+
+//===----------------------------------------------------------------------===//
+//  Arbitrary patterns that map to one or more instructions
+//===----------------------------------------------------------------------===//
+
+// Small immediates
+def : Pat<(i32 immSExt12:$in), (ADDI_W ZERO, imm:$in)>;
+
+def : Pat<(i32 immZExt12:$in), (ORI ZERO, imm:$in)>;
+
+def : Pat<(i32 immLow12Zero:$in), (LU12I_W (HI20 imm:$in))>;
+
+// Arbitrary immediates
+def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;

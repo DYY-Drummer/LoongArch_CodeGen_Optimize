@@ -1031,11 +1031,15 @@ $func_end0:
 
 ## 2.5 函数头/尾
 
+​		本节实现函数调用时的内存相关的操作，主要包括栈的创建和销毁、栈内变量的存储、复杂地址计算以及函数头和函数尾代码插入。
+
 ​		函数调用开始和结束时的堆栈和寄存器等信息通常只能在运行时才能确定，不能通过死代码用TableGen静态生成。用于声明这些信息的段落称为函数头（Prologue ）和函数尾（Epilogue ），它们在所有指令翻译完后才执行插入，不属于指令翻译的一部分，而是堆栈使用的约定，例如由ABI指定的被调用者保存寄存器必须在进入函数时将值保存到内存，并在退出函数时从内存中恢复。
+
+
 
 ### 2.5.1 栈相关操作
 
-+ **LoongArchSEFrameLowering.cpp**
++ **LoongArchSEFrameLowering(.h/.cpp)**
 
   实现发射函数头尾的函数：emitPrologue()和emitEpilogue()。
 
@@ -1093,28 +1097,100 @@ def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;
 
 ​		其中，输出参数、指向动态分配的栈空间的指针和全局寄存器，本就总是以相对于SP的方式引用的，不需要进行该转换；而输入参数、被调用者保存寄存器和局部变量等则需要进行转换。
 
-+ 用ch3_largeframe.cpp测试大栈
 
-+ 输出：
+
++ **LoongArchInstrInfo(.h.cpp)**
+
+​		声明寄存器的内存读取、入栈操作的方法storeRegToStack()和loadRegFromStack()。实现内存操作数的构造方法。
+
++ **LoongArchSEInstrInfo(.h/.cpp)**
+
+​		storeRegToStack()方法负责实现寄存器分配阶段的寄存器溢出（spill）操作。通过和LoongArchInstrInfo.td中定义的ST_W和LD_W绑定，实现将寄存器值保存入栈和从栈内读取数据到寄存器的功能。
+
+​		由于局部变量的地址是由一个帧索引指定的，所以在storeRegToStack()中它们对应的虚拟寄存器的偏移均为零。
+
++ **LoongArchAnalyzeImmediate(.h/.cpp)**
+
+​		这里使用了递归设计，通过ADDI_W、ORI、SLLI_W和LU12I_W指令的组合加载任意位的立即数到寄存器，并从所有组合中选择指令数最少的一种替换原指令序列。选择指令的原则如下：
+
+​		若立即数不超过12位，则使用ADDI_W；若立即数的低12位为零，则使用SLLI_W；若指令序列以ADDI_W和SLLI_W开头，SLLI_W移动位数不小于12位且移位后不超过32位，则用一条LU12I_W指令等价替换这两条指令。还可以根据需要指定指令序列的最后一条指令为ADDI_W或SLLI_W或ORI。
+
+​		下表以调整栈指针为例，展示了加载不同大小的立即数（栈大小）的指令序列（r3为SP，r21为临时寄存器，栈地址以8字节对齐）：
+
+| 栈空间地址范围    | 栈大小     | 函数头（创建栈）                                             | 函数尾（销毁栈）                                             |
+| ----------------- | ---------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| 0~0x07D0          | 0x07D0     | `addi.w $r3, $r3, -2000`                                     | `addi.w $r3, $r3, 2000`                                      |
+| 0x0800~0x0ff8     | 0x0800     | `addi.w $r3, $r3, -2048`                                     | `addi.w $r21, $r0, 1`<br>`slli.w $r21, $r21, 12`<br>`addi.w $r21, $r21, -2048`<br>`add.w $r3, $r3, $r21` |
+| 0x1000~0xfffffff8 | 0x7ffffff8 | `addi.w $r21, $r0, 8`<br>`slli.w $r21, $r21, 28`<br>`addi.w $r21, $r21, 8`<br>`add.w $r3, $r3, $21` | `addi.w $r21, $r0, 8`<br/>`slli.w $r21, $r21, 28`<br/>`addi.w $r21, $r21, -8`<br/>`add.w $r3, $r3, $21` |
+| 0x1000~0xfffffff8 | 0x90008000 | `addi.w $r21, $r0, -9`<br/>`slli.w $r21, $r21, 28`<br/>`addi.w $r21, $r21, -32768`<br/>`add.w $r3, $r3, $21` | `addi.w $r21, $r0, -28671`<br/>`slli.w $r21, $r21, 16`<br/>`addi.w $r21, $r21, -32768`<br/>`add.w $r3, $r3, $21` |
+
+​		之后，ReplaceADDI_WSLLI_WWithLU12I_W()会把指令序列开头的`addi.w`和`slli.w`替换成一个`lu12i.w`，例如：
+
+| 栈空间地址范围    | 栈大小     | 函数头（创建栈）                                | 函数尾（销毁栈）                                 |
+| ----------------- | ---------- | ----------------------------------------------- | ------------------------------------------------ |
+| 0x0800~0x0ff8     | 0x0800     | `addi.w $r3, $r3, -2048`                        | `ori $r21, $r0, 2048`<br>`add.w $r3, $r3, $r21`  |
+| 0x1000~0xfffffff8 | 0x90008000 | `lu12i.w $r21, 458744`<br>`add.w $r3, $r3, $21` | `lu12i.w $r21, 589832`<br/>`add.w $r3, $r3, $21` |
+
+
+
++ **编译测试**
+
+  为了测试栈空间较大时的地址计算功能，我们在上一节的C程序中添加一个超大数组的定义：
+
+  ```c
+  int main() {
+  	int a[0b11111110011010101100111];
+  	return 0;
+  }
+  ```
 
   
 
+  对应的LLVM IR：
+
   ```assembly
-  %bb.0:
-  	lui	$1, 36864
-      addiu	$1, $1, 32760
-      addu	$sp, $sp, $1
-      addiu	$2, $zero, 0
-      st	$2, 1879015428($sp)
-      lui	$1, 28672
-      addiu	$1, $1, -32760
-      addu	$sp, $sp, $1
-      ret	$lr
+  define dso_local i32 @main() #0 {
+    %1 = alloca i32, align 4
+    %2 = alloca [8336743 x i32], align 4
+    store i32 0, i32* %1, align 4
+    ret i32 0
+  }
   ```
 
-+ 查看pass的执行流程`./llc -march=cpu0 -relocation-model=pic -filetype=asm ch2.bc -debug-pass=Structure -o -`，更多信息在CodeGen/Passes.h中
+  编译输出LoongArch汇编代码：
 
-```llvm
+  ```assembly
+  main:
+  	.frame	$r22,33346976,$r1
+  	.mask 	0x00000000,0
+  	.set	noreorder
+  	.set	nomacro
+  # %bb.0:
+  	lu12i.w	$r21, 65534
+  	addi.w	$r21, $r21, 51
+  	slli.w	$r21, $r21, 12
+  	addi.w	$r21, $r21, -1440
+  	add.w	$r3, $r3, $r21
+  	addi.w	$r4, $r0, 0
+  	st.w	$r4, $r3, 33346972
+  	lu12i.w	$r21, 2
+  	addi.w	$r21, $r21, -51
+  	slli.w	$r21, $r21, 12
+  	addi.w	$r21, $r21, 1440
+  	add.w	$r3, $r3, $r21
+  	jr	$r1
+  	.set	macro
+  	.set	reorder
+  	.end	main
+  
+      
+  ```
+
+  可以看到栈帧调整的指令和地址计算的指令都正常运行了。
+
++ 可通过如下指令查看pass的执行流程`./llc -march=cpu0 -relocation-model=pic -filetype=asm ch2.bc -debug-pass=Structure -o -`，更多信息在CodeGen/Passes.h中。
+
+```txt
 Target Library Information
 Target Pass Configuration
 Machine Module Information
@@ -1132,7 +1208,7 @@ Machine Branch Probability Analysis
     Rewrite Symbols
     FunctionPass Manager
       ...
-      CPU0 DAG to DAG Pattern Instruction Selection
+      LOONGARCH DAG to DAG Pattern Instruction Selection
       ...
       Optimize machine instruction PHIs
       ...
@@ -1148,22 +1224,12 @@ Machine Branch Probability Analysis
       ...
       Prologue/Epilogue Insertion & Frame Finalization
       ...
-      Cpu0 Assmebly Printer
+      LoongArch Assmebly Printer
       ...
 
 ```
 
-+ 可用如下指令分别统计所有.cpp,.td,.h,.txt文件的行数
 
-  ```
-  wc -l `find path -name "*.cpp"`|tail -n1
-  ```
-
-  LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注释）
-
-
-
-​		
 
 ### GDB 调试 LLVM后端
 
@@ -1196,3 +1262,13 @@ run
 ```
 
 输入backtrace可查看当前调用函数的堆栈列表和所有父函数，检查是否一直困在某个父函数里。
+
+
+
++ 可用如下指令分别统计所有.cpp,.td,.h,.txt文件的行数
+
+```
+wc -l `find path -name "*.cpp"`|tail -n1
+```
+
+LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注释）

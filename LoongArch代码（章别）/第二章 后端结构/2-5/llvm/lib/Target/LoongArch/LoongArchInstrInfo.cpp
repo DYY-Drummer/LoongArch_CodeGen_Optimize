@@ -35,3 +35,14 @@ unsigned LoongArchInstrInfo::GetInstSizeInBytes(const MachineInstr &MI) const {
             return MI.getDesc().getSize();
     }
 }
+
+MachineMemOperand *
+LoongArchInstrInfo::GetMemOperand(MachineBasicBlock &MBB, int FI,
+                             MachineMemOperand::Flags Flags) const {
+    MachineFunction &MF = *MBB.getParent();
+    MachineFrameInfo &MFI = MF.getFrameInfo();
+    unsigned Align = MFI.getObjectAlignment(FI);
+
+    return MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
+                                   Flags, MFI.getObjectSize(FI), Align);
+}

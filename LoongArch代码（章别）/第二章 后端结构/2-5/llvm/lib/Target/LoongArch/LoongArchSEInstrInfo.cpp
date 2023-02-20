@@ -42,6 +42,39 @@ bool LoongArchSEInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     return true;
 }
 
+
+void LoongArchSEInstrInfo::
+storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                unsigned SrcReg, bool isKill, int FI,
+                const TargetRegisterClass *RC, const TargetRegisterInfo *TRI,
+                int64_t Offset) const {
+    DebugLoc DL;
+    MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOStore);
+
+    unsigned Opc = 0;
+
+    Opc = LoongArch::ST_W;
+    assert(Opc && "Register class not handled!");
+    BuildMI(MBB, I, DL, get(Opc)).addReg(SrcReg, getKillRegState(isKill))
+            .addFrameIndex(FI).addImm(Offset).addMemOperand(MMO);
+}
+
+void LoongArchSEInstrInfo::
+loadRegFromStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                 unsigned DestReg, int FI, const TargetRegisterClass *RC,
+                 const TargetRegisterInfo *TRI, int64_t Offset) const {
+    DebugLoc DL;
+    if (I != MBB.end()) DL = I->getDebugLoc();
+    MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOLoad);
+    unsigned Opc = 0;
+
+    Opc = LoongArch::LD_W;
+    assert(Opc && "Register class not handled!");
+    BuildMI(MBB, I, DL, get(Opc), DestReg).addFrameIndex(FI).addImm(Offset)
+            .addMemOperand(MMO);
+}
+
+
 // Adjust SP by Amount bytes.
 void LoongArchSEInstrInfo::adjustStackPtr(unsigned SP, int64_t Amount,
                                      MachineBasicBlock &MBB,
