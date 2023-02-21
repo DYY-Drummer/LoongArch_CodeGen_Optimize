@@ -1231,6 +1231,69 @@ Machine Branch Probability Analysis
 
 
 
+# 第三章 算术和逻辑运算指令
+
+​		本章实现了用于处理+、-、×、÷等算术运算和!=、&、|等逻辑运算的指令。本章的重点在于C程序操作数和IR指令的映射关系，以及如何用.td文件描述更复杂的指令。
+
+
+
+## 3.1 算术运算指令
+
+### 3.1.1 加减乘和移位
+
+本节实现了+、-、*、<<和>>运算。
+
++ **LoongArchSubtarget.cpp**
+
+​		定义了是否检测算术运算溢出情况的flag，默认不启用，当算术运算溢出时截断运算结果。可在llc命令后添加`-loongarch-enable-overflow=true`选项启用，当算数运算溢出时抛出异常。大部分处理器对溢出的默认处理都是直接截断，启用溢出异常抛出可帮助开发人员调试程序。但是目前龙芯处理器尚未支持整数运算溢出异常抛出，只支持浮点运算溢出异常抛出。
+
++ **LoongArchInstrInfo.td**
+
+​		添加四则运算指令SUB_W，MUL_W、MULH_W、MULH_WU、DIV_W、DIV_WU、MOD_W、MOD_WU。MUL_W用于保存64位运算结果的低32位，MULH_W用于保存64位运算结果的高32位。MULH_W处理有符号数，MULH_WU处理无符号数。DIV和MOD类似。
+
+​		添加有立即数的位运算指令SLLI_W、SRLI_W、SRAI_W、ROTRI_W和无立即数的位运算指令SLL_W、SRL_W、SRA_W、ROTR_W。其中又细分为逻辑移位、算术移位和循环移位，对应的LLVM IR节点信息请查看：[LLVM::ISD命名参考](https://llvm.org/doxygen/namespacellvm_1_1ISD.html#a22ea9cec080dd5f4f47ba234c2f59110a8a80d3b085af08f0dce1724207ef99b5)。
+
+
+
++ **编译测试**
+
+​		使用如下代码测试算术运算指令：
+
+```c
+int main()
+{
+    int a = 5;
+    int b = 2;
+    unsigned int a1 = -5;  // 0xfffffffb
+    int c, d, e, f, g, h, i, j;
+    unsigned int f1, g1, h1, i1;
+
+    c = a + b;    		// c = 7
+    d = a - b;    		// d = 3
+    e = a * b ;    		// e = 10
+    f = (a << 2); 		// f = 20
+    f1 = -(f / b);     // f1 = 0xfffffff6 = -10
+    g = (a >> 2); 		// g = 1
+    g1 = (a1 >> 30);    // g1 = 0x03 = 3
+    h = (1 << a); 		// h = 0x20 = 32
+    h1 = (b % a) * 2;		// h1 = 4
+    i = (0x80 >> a);    // i = 0x04 = 4
+    i1 = ((b - 2) / 6);		// i1 = 0
+	j = (-24 >> 2);		// j = -6
+    
+    return (c+d+e+f+(int)f1+g+(int)g1+h+(int)h1+i+(int)i1+j);
+// 7+3+10+20-10+1+3+32+4+4+0-6 = 68
+}
+```
+
+
+
+### 3.1.2 
+
+
+
+
+
 ### GDB 调试 LLVM后端
 
 gdb ./llc
@@ -1272,3 +1335,6 @@ wc -l `find path -name "*.cpp"`|tail -n1
 ```
 
 LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注释）
+
+
+
