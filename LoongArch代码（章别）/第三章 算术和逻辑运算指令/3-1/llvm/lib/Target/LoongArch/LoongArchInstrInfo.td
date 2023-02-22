@@ -75,6 +75,11 @@ def mem : Operand<iPTR> {
   let MIOperandInfo = (ops GPROut, simm12);
   let EncoderMethod = "getMemEncoding";
 }
+// Return an immediate subtracted from 32.
+def ImmSubFrom32 : SDNodeXForm<imm, [{
+return CurDAG->getTargetConstant(32 - N->getZExtValue(), SDLoc(N),
+        N->getValueType(0));
+}]>;
 
 // Node immediate fits as N-bit sign extended on target immediate.
 // e.g. addi.w
@@ -162,6 +167,14 @@ class ALU_2RI12<bits<10> op, string instr_asm, SDNode OpNode,
   let isReMaterializable = 1;
 }
 
+//  Logical
+class LogicNOR<bits<17> op, string instr_asm, RegisterClass RC>:
+Fmt3R<op, (outs RC:$rd), (ins RC:$rj, RC:$rk),
+!strconcat(instr_asm, "\t$rd, $rj, $rk"),
+[(set RC:$rd, (not (or RC:$rj, RC:$rk)))], IIAlu> {
+let isCommutable = 1;
+}
+
 // Shifts
 // Shifts with immediate value
 class shift_rotate_imm<bits<17> op, bits<4> isRotate, string instr_asm,
@@ -234,6 +247,30 @@ class StoreM32<bits<10> op, string instr_asm, PatFrag OpNode,
   : STORE_2RI12<op, instr_asm, OpNode, GPROut, mem, Pseudo> {
 }
 
+/// SetCC
+class SetCC_R<bits<17> op, string instr_asm, PatFrag cond_op,
+        RegisterClass RC>:
+Fmt3R<op, (outs GPROut:$rd), (ins RC:$rj, RC:$rk),
+!strconcat(instr_asm, "\t$rd, $rj, $rk"),
+[(set GPROut:$rd, (cond_op RC:$rj, RC:$rk))],
+IIAlu>, Requires<[HasSlt]> {
+}
+
+class SetCC_I<bits<10> op, string instr_asm, PatFrag cond_op, Operand Od,
+PatLeaf imm_type, RegisterClass RC>:
+Fmt2RI12<op, (outs GPROut:$rd), (ins RC:$rj, Od:$imm12),
+!strconcat(instr_asm, "\t$rd, $rj, $imm12"),
+[(set GPROut:$rd, (cond_op RC:$rj, imm_type:$imm12))],
+IIAlu>, Requires<[HasSlt]> {
+}
+
+//SExt and ZExt
+class EXT<bits<22> op, string instr_asm, RegisterClass RC>:
+Fmt2R<op, (outs GPROut:$rd), (ins RC:$rj),
+!strconcat(instr_asm, "\t$rd, $rj"),
+[], IIAlu> {
+}
+
 //@JumpFR {
 let isBranch=1, isTerminator=1, isBarrier=1, imm16=0, hasDelaySlot = 1,
     isIndirectBranch = 1 in
@@ -275,12 +312,19 @@ def ST_W     : StoreM32<0b0010100110, "st.w",  store_a>; //store bit [31:0] of $
 def ADDI_W   : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12, GPR>;
 def ORI      : ALU_2RI12<0b0000001110, "ori", or, uimm12, immZExt12, GPR>;
 def LU12I_W  : LoadUpper<0b0001010, "lu12i.w", GPROut, uimm20>;
+def ANDI     : ALU_2RI12<0b0000001101, "andi", and, uimm12, immZExt12, GPR>;
+def XORI     : ALU_2RI12<0b0000001111, "xori", xor, uimm12, immZExt12, GPR>;
 
 /// Arithmetic Instructions (3-Operand, 3Register-Type)
 let Predicates = [DisableOverflow] in {
 def ADD_W    : ALU_3R<0b00000000000100000, "add.w", add, IIAlu, GPR, 1>;
 def SUB_W    : ALU_3R<0b00000000000100010, "sub.w", sub, IIAlu, GPR>;
 }
+def AND     : ALU_3R<0b00000000000101001, "and", and, IIAlu, GPR, 1>;
+def OR      : ALU_3R<0b00000000000101010, "or", or, IIAlu, GPR, 1>;
+def XOR     : ALU_3R<0b00000000000101011, "xor", xor, IIAlu, GPR, 1>;
+def NOR     : LogicNOR<0b00000000000101000, "nor", GPR>;
+
 /// Multiply and Divide Instructions.
 def MUL_W   : ALU_3R<0b00000000000111000, "mul.w", mul, IIImul, GPR, 1>;
 def MULH_W   : ALU_3R<0b00000000000111001, "mulh.w", mulhs, IIImul, GPR, 1>;
@@ -310,6 +354,19 @@ def SRL_W    : shift_rotate_reg<0b00000000000101111, 0x00, "srl.w", srl, GPR>;
 def SRA_W    : shift_rotate_reg<0b00000000000110000, 0x00, "sra.w", sra, GPR>;
 // shift right arithmetic
 def ROTR_W    : shift_rotate_reg<0b00000000000110110, 0x01, "rotr.w", rotr, GPR>;
+
+
+let Predicates = [HasSlt] in {
+def SLTI    : SetCC_I<0b0000001000, "slti", setlt, simm12, immSExt12, GPR>;
+def SLTUI   : SetCC_I<0b0000001001, "sltui", setult, simm12, immSExt12, GPR>;
+def SLT     : SetCC_R<0b00000000000100100, "slt", setlt, GPR>;
+def SLTU    : SetCC_R<0b00000000000100101, "sltu", setult, GPR>;
+}
+
+/// sext and zext
+def EXT_W_B : EXT<0b0000000000000000010111, "ext.w.b", GPR>;
+def EXT_W_H : EXT<0b0000000000000000010110, "ext.w.h", GPR>;
+
 
 /// Jump Instructions
 //def JIRL      : JumpFR<0b010011, "jirl", add, simm16, immSExt16, GPROut>;
@@ -360,3 +417,64 @@ def : Pat<(i32 immLow12Zero:$in), (LU12I_W (HI20 imm:$in))>;
 
 // Arbitrary immediates
 def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;
+
+def : Pat<(rotl GPR:$rj, immZExt5:$imm), (ROTRI_W GPR:$rj, (ImmSubFrom32 immZExt5:$imm))>;
+
+def : Pat<(not GPR:$in),(NOR GPR:$in, ZERO)>;
+
+// setcc for slt instruction
+multiclass SeteqPatsSlt<RegisterClass RC, Instruction SLTUIOp, Instruction XOROp,
+        Instruction SLTUOp, Register ZEROReg> {
+// a == b
+        def : Pat<(seteq RC:$lhs, RC:$rhs),
+        (SLTUIOp (XOROp RC:$lhs, RC:$rhs), 1)>;
+// a != b
+        def : Pat<(setne RC:$lhs, RC:$rhs),
+        (SLTUOp ZEROReg, (XOROp RC:$lhs, RC:$rhs))>;
+}
+
+// a <= b
+multiclass SetlePatsSlt<RegisterClass RC, Instruction SLTOp, Instruction SLTUOp> {
+        def : Pat<(setle RC:$lhs, RC:$rhs),
+// a <= b is equal to (XORI (b < a), 1)
+        (XORI (SLTOp RC:$rhs, RC:$lhs), 1)>;
+        def : Pat<(setule RC:$lhs, RC:$rhs),
+        (XORI (SLTUOp RC:$rhs, RC:$lhs), 1)>;
+}
+
+// a > b
+multiclass SetgtPatsSlt<RegisterClass RC, Instruction SLTOp, Instruction SLTUOp> {
+        def : Pat<(setgt RC:$lhs, RC:$rhs),
+// a > b is equal to b < a is equal to setlt(b, a)
+        (SLTOp RC:$rhs, RC:$lhs)>;
+        def : Pat<(setugt RC:$lhs, RC:$rhs),
+        (SLTUOp RC:$rhs, RC:$lhs)>;
+}
+
+// a >= b
+multiclass SetgePatsSlt<RegisterClass RC, Instruction SLTOp, Instruction SLTUOp> {
+        def : Pat<(setge RC:$lhs, RC:$rhs),
+// a >= b is equal to b <= a
+        (XORI (SLTOp RC:$lhs, RC:$rhs), 1)>;
+        def : Pat<(setuge RC:$lhs, RC:$rhs),
+        (XORI (SLTUOp RC:$lhs, RC:$rhs), 1)>;
+}
+
+multiclass SetgeImmPatsSlt<RegisterClass RC, Instruction SLTIOp,
+        Instruction SLTUIOp> {
+        def : Pat<(setge RC:$lhs, immSExt12:$rhs),
+        (XORI (SLTIOp RC:$lhs, immSExt12:$rhs), 1)>;
+        def : Pat<(setuge RC:$lhs, immSExt12:$rhs),
+        (XORI (SLTUIOp RC:$lhs, immSExt12:$rhs), 1)>;
+}
+
+let Predicates = [HasSlt] in {
+defm : SeteqPatsSlt<GPR, SLTUI, XOR, SLTU, ZERO>;
+defm : SetlePatsSlt<GPR, SLT, SLTU>;
+defm : SetgtPatsSlt<GPR, SLT, SLTU>;
+defm : SetgePatsSlt<GPR, SLT, SLTU>;
+defm : SetgeImmPatsSlt<GPR, SLTI, SLTUI>;
+}
+
+def : Pat<(sext_inreg GPR:$rj, i8), (EXT_W_B GPR:$rj)>;
+def : Pat<(sext_inreg GPR:$rj, i16), (EXT_W_H GPR:$rj)>;

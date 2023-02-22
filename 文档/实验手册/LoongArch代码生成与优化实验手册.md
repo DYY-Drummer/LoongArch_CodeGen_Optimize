@@ -1023,9 +1023,11 @@ $func_end0:
 
 ​	`-print-after-all ch2.bc -o -`
 
-​		从打印出来的信息可以看到，在selection DAG合法化阶段，LLVM遇到`ret`关键字时就调用LoongArchISelLowering.cpp中的`LowerReturn()`方法，创建DAG节点`LoongArchISD::Ret`；在指令选择阶段，`LoongArchISD::Re`t被伪指令RetRA代替；在Post-RA伪指令拓展阶段，根据LoongArchSEInstrInfo.cpp中的`expandPostRAPseudo()`将RetRA扩展为`LoongArch::RET $ra`。最后在汇编输出阶段，将`LoongArch::RET`根据LoongArchInstroInfo.td（实际上是TableGen根据该.td生成的.inc）中定义的翻译成`jr $ra` 。
+​		从打印出来的信息可以看到，在selection DAG合法化阶段，LLVM遇到`ret`关键字时就调用LoongArchISelLowering.cpp中的`LowerReturn()`方法，创建我们自定义的DAG节点`LoongArchISD::Ret`加入DAG图中；在指令选择阶段，`LoongArchISD::Ret`被伪指令RetRA代替；在Post-RA伪指令拓展阶段，根据LoongArchSEInstrInfo.cpp中的`expandPostRAPseudo()`将RetRA扩展为`LoongArch::RET $ra`。最后在汇编输出阶段，将`LoongArch::RET`根据LoongArchInstroInfo.td（实际上是TableGen根据该.td生成的.inc）中定义的翻译成`jr $ra` 。
 
 ​		返回值常量0被根据`def : Pat<(i32 immSExt12:$in),(ADDI_W ZERO, imm:$in)>;`的匹配模式转换成“`addi.w	$r4, $r0, 0`”。
+
+![2-4 DAG](2-4 DAG.png)
 
 
 
@@ -1233,15 +1235,15 @@ Machine Branch Probability Analysis
 
 # 第三章 算术和逻辑运算指令
 
-​		本章实现了用于处理+、-、×、÷等算术运算和!=、&、|等逻辑运算的指令。本章的重点在于C程序操作数和IR指令的映射关系，以及如何用.td文件描述更复杂的指令。
+​		本章实现了用于处理+、-、×、÷等算术运算和!=、|、&等逻辑运算的指令。这些运算符的相应的IR指令在龙芯指令集中几乎都有相同功能的机器指令，只需在.td文件中描述其一对一的映射即可，不需要指令扩展。
+
+​		本章的重点在于C程序操作数和IR指令的映射关系，以及如何用.td文件描述更复杂的指令规则。
 
 
 
 ## 3.1 算术运算指令
 
-### 3.1.1 加减乘和移位
-
-本节实现了+、-、*、<<和>>运算。
+​		本节实现了+、-、*、/、%、<<和>>运算。
 
 + **LoongArchSubtarget.cpp**
 
@@ -1249,9 +1251,21 @@ Machine Branch Probability Analysis
 
 + **LoongArchInstrInfo.td**
 
-​		添加四则运算指令SUB_W，MUL_W、MULH_W、MULH_WU、DIV_W、DIV_WU、MOD_W、MOD_WU。MUL_W用于保存64位运算结果的低32位，MULH_W用于保存64位运算结果的高32位。MULH_W处理有符号数，MULH_WU处理无符号数。DIV和MOD类似。
+​		添加四则运算指令SUB_W、MUL_W、MULH_W、MULH_WU、DIV_W、DIV_WU、MOD_W、MOD_WU。MUL_W用于保存64位运算结果的低32位，MULH_W用于保存64位运算结果的高32位。MULH_W处理有符号数，MULH_WU处理无符号数。DIV和MOD类似。
 
 ​		添加有立即数的位运算指令SLLI_W、SRLI_W、SRAI_W、ROTRI_W和无立即数的位运算指令SLL_W、SRL_W、SRA_W、ROTR_W。其中又细分为逻辑移位、算术移位和循环移位，对应的LLVM IR节点信息请查看：[LLVM::ISD命名参考](https://llvm.org/doxygen/namespacellvm_1_1ISD.html#a22ea9cec080dd5f4f47ba234c2f59110a8a80d3b085af08f0dce1724207ef99b5)。
+
+​		由于龙芯指令集中没有循环左移指令，所以对于IR的循环左移指令`rotl $rd, N` ，我们采用“循环右移（32 - N）位”，即`rotri.w $rd, 32-N`实现相同功能：
+
+```assembly
+// 返回32-N
+def ImmSubFrom32 : SDNodeXForm<imm, [{
+return CurDAG->getTargetConstant(32 - N->getZExtValue(), SDLoc(N),
+        N->getValueType(0));
+}]>;
+
+def : Pat<(rotl GPR:$rj, immZExt5:$imm), (ROTRI_W GPR:$rj, (ImmSubFrom32 immZExt5:$imm))>;
+```
 
 
 
@@ -1273,24 +1287,94 @@ int main()
     e = a * b ;    		// e = 10
     f = (a << 2); 		// f = 20
     f1 = -(f / b);     // f1 = 0xfffffff6 = -10
-    g = (a >> 2); 		// g = 1
+    g = (b % a) * 2; 		// g = 4
     g1 = (a1 >> 30);    // g1 = 0x03 = 3
     h = (1 << a); 		// h = 0x20 = 32
-    h1 = (b % a) * 2;		// h1 = 4
+    h1 = ((g << 30) | (g >> 2));	// h1 = 1 该行会产生rotl指令
     i = (0x80 >> a);    // i = 0x04 = 4
     i1 = ((b - 2) / 6);		// i1 = 0
 	j = (-24 >> 2);		// j = -6
     
     return (c+d+e+f+(int)f1+g+(int)g1+h+(int)h1+i+(int)i1+j);
-// 7+3+10+20-10+1+3+32+4+4+0-6 = 68
+	// 7+3+10+20-10+4+3+32+1+4+0-6 = 68
 }
+```
+
+​		使用Graphviz 工具可以查看各阶段的图形化的LLVM DAG图信息，比2.4节中使用`-print-after-all`打印出来的文本信息可读性要强得多。使用方法：
+
+```txt
+安装： sudo apt install graphviz
+生成.dot文件：./llc -view-sched-dags -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.loongarch.s
+生成成功信息：Writing '/tmp/dag.main-b09641.dot'...  done. 
+使用不同选项生成不同阶段的DAG图：
+-view-dag-combine1-dags: Initial selection DAG
+-view-legalize-dags: Optimized type-legalized selection DAG
+-view-dag-combine2-dags: Legalized selection DAG
+-view-isel-dags: Optimized legalized selection DAG
+-view-sched-dags: Selected selection DAG
+将.dot文件转换为png图片：dot /tmp/dag.main-b09641.dot -Tpng -o test.png
+
 ```
 
 
 
-### 3.1.2 
 
 
+## 3.2 逻辑运算指令
+
+​		本节实现了&、 |、 ^、 !、 ==、 !=、 <、 <=、 > 和 >=运算。
+
++ **LoongArchInstrInfo.td**
+
+​		添加了逻辑运算指令ANDI、XORI、AND、OR、XOR、NOR、SLT、SLTI、SLTU、SLTUI和符号扩展指令EXT_W_B、EXT_W_H。
+
+​		这里使用了multiclass和defm的匹配方法，用于功能相同但操作数分别为有/无符号数的一组指令包装起来。
+
+​		`==、!=、<=、>=`没有直接对应的机器指令，我们通过SLT系列指令和与、或、异或、非指令的组合来实现。以`==`为例，对于`a==b`运算，其等价于先用a，b做异或运算，所得结果与1做SLTUI运算，SLTUI做的是`a<b`的判断，若a等于b，则a与b异或的结果为0，0小于1，SLTUI返回1（真），若a不等于b，则a与b异或不得0，SLTUI返回0（假），即 `(seteq a, b) <=> (SLTUI (XOR a, b), 1)`。
+
+
+
++ **LoongArchISelLowering.cpp**
+
+​		在翻译比较指令时，LLVM IR会生成zext指令，将i1的结果扩展为i32，龙芯指令集中没有相应指令，通过setOperationAction()方法将其扩展为SRA_W和SLL_W的组合。
+
+​	（不过此处我无论加没加这些setOperationAction()，汇编代码输出也成功了，视乎忽略了zext指令。）
+
++ **编译测试**
+
+​		使用如下代码测试逻辑运算指令：
+
+```c
+int test_andorxornot()
+{
+    int a = 5;
+    int b = 3;
+    int c = 0, d = 0, e = 0;
+
+    c = (a & b);  // c = 1
+    d = (a | b);  // d = 7
+    e = (a ^ b);  // e = 6
+    b = !a;       // b = 0
+
+    return (c+d+e+b);  // 14
+}
+
+int test_setxx()
+{
+    int a = 5;
+    int b = 3;
+    int c, d, e, f, g, h;
+
+    c = (a == b);  // seq, c = 0
+    d = (a != b);  // sne, d = 1
+    e = (a < b);   // slt, e = 0
+    f = (a <= b);  // sle, f = 0
+    g = (a > b);   // sgt, g = 1
+    h = (a >= b);  // sge, g = 1
+
+    return (c+d+e+f+g+h);  // 3
+}
+```
 
 
 

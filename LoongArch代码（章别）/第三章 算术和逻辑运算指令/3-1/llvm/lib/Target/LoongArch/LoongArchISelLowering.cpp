@@ -50,6 +50,11 @@ const char *LoongArchTargetLowering::getTargetNodeName(unsigned Opcode) const {
 LoongArchTargetLowering::LoongArchTargetLowering(const LoongArchTargetMachine &TM, const LoongArchSubtarget &STI)
         : TargetLowering(TM), Subtarget(STI), ABI(TM.getABI()) {
 
+    setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1 , Expand);
+    setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i8 , Expand);
+    setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i16 , Expand);
+    setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i32 , Expand);
+    setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::Other , Expand);
 
 
     // Set .align 2,
