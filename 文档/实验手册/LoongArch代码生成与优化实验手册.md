@@ -1300,6 +1300,8 @@ int main()
 }
 ```
 
+​		
+
 ​		使用Graphviz 工具可以查看各阶段的图形化的LLVM DAG图信息，比2.4节中使用`-print-after-all`打印出来的文本信息可读性要强得多。使用方法：
 
 ```txt
@@ -1336,7 +1338,7 @@ int main()
 
 + **LoongArchISelLowering.cpp**
 
-​		在翻译比较指令时，LLVM IR会生成zext指令，将i1的结果扩展为i32，龙芯指令集中没有相应指令，通过setOperationAction()方法将其扩展为SRA_W和SLL_W的组合。
+​		在翻译比较指令时，LLVM IR会生成zext指令，将i1的结果扩展为i32，龙芯指令集中没有无符号扩展指令，通过setOperationAction()方法将其扩展为SRA_W和SLL_W的组合。
 
 ​	（不过此处我无论加没加这些setOperationAction()，汇编代码输出也成功了，视乎忽略了zext指令。）
 
@@ -1375,6 +1377,23 @@ int test_setxx()
     return (c+d+e+f+g+h);  // 3
 }
 ```
+
+​		
+
+​		对照生成的LLVM IR代码和LoongArch汇编代码，汇总如下指令选择映射表：		
+
+| C语言 | LLVM IR                                                      | LoongArch                                                    |
+| :---: | :----------------------------------------------------------- | :----------------------------------------------------------- |
+|   &   | `%8 = and i32 %6, %7`                                        | `and	$r5, $r5, $r6`                                       |
+|  \|   | `%11 = or i32 %9, %10`                                       | `or	$r5, $r5, $r6`                                        |
+|   ^   | `%14 = xor i32 %12, %13`                                     | `xor	$r5, $r5, $r6`                                       |
+|   !   | `%16 = icmp ne i32 %15, 0`<br>`%17 = xor i1 %16, true`<br>`%18 = zext i1 %17 to i32` | `xor	$r4, $r5, $r4`<br/>`sltui	$r4, $r4, 1`<br/>`	andi	$r4, $r4, 1` |
+|  ==   | `%11 = icmp eq i32 %9, %10`<br> `%12 = zext i1 %11 to i32`   | `xor	$r4, $r4, $r5`<br/>`sltui	$r4, $r4, 1`<br/>`andi	$r4, $r4, 1` |
+|  !=   | `%15 = icmp ne i32 %13, %14`<br/>`%16 = zext i1 %15 to i32`  | `xor	$r4, $r4, $r5`<br/>`sltu	$r4, $r0, $r4`<br/>`andi	$r4, $r4, 1` |
+|   <   | `%19 = icmp slt i32 %17, %18` <br>`%20 = zext i1 %19 to i32` | `slt	$r4, $r4, $r5`<br/>`andi	$r4, $r4, 1`             |
+|   >   | `%23 = icmp sgt i32 %25, %26`<br>`%24 = zext i1 %27 to i32`  | `slt	$r4, $r5, $r4`<br/>`andi	$r4, $r4, 1`             |
+|  <=   | `%27 = icmp sle i32 %21, %22` <br/>`%28 = zext i1 %23 to i32` | `slt	$r4, $r5, $r4`<br/>`xori	$r4, $r4, 1`<br/>`andi	$r4, $r4, 1` |
+|  >=   | `%31 = icmp sge i32 %29, %30`<br>`%32 = zext i1 %31 to i32`  | `slt	$r4, $r4, $r5`<br/>`xori	$r4, $r4, 1`<br/>`andi	$r4, $r4, 1` |
 
 
 
@@ -1422,3 +1441,4 @@ LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注�
 
 
 
+# 第四章 目标文件生成
