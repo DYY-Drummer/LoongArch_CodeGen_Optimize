@@ -797,7 +797,7 @@ void LoongArchInstPrinter::printMemOperand(const MCInst *MI, int OpNum,
 def mem : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops GPROut, simm12);
-  let EncoderMethod = "getMemEncoding";
+  let EncoderMethod = "getMemEncoding"; //编码方法，用于生成OBJ文件时输出编码
 }
 ```
 
@@ -1442,3 +1442,59 @@ LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注�
 
 
 # 第四章 目标文件生成
+
+## 4.1 简介
+
+​		在目前为止的编译测试中，我们生成的都是汇编代码的.s文件（通过选项-filetype=asm），我们的后端还不支持生成.obj目标文件。本章将实现对ELF OBJ目标文件的支持，将文本格式的汇编指令转换为由opcode、寄存器编码等组成的数字编码序列。
+
+​		本章的工作分为三大部分：
+
++ **后端功能模块注册**
+
+​		如同2.3节中我们注册汇编打印器功能模块一样，为了让LLVM项目识别并调用到我们自定义的功能模块，需要将ELF文件相关的ELFStreamer、ELFObjectWriter、AsmBackend等类注册到LLVM后端架构中。模块注册主要依靠LoongArchMCTargetDesc.cpp中的TargetRegistry接口。
+
++ **指令编码**
+
+​		以汇编代码`xor	$r5, $r5, $r6`为例，编码模块需要通过LoongArchGenInstrInfo.inc获取xor的opcode，还要通过LoonArchGenRegisterInfo.inc获取r5，r6寄存器的编码，将文本形式的汇编转换为编码序列输出。主要由LoongArchMCCodeEmitter实现。
+
++ **编码发射**
+
+​		将组装好的目标代码写入LLVM内存缓冲区中。由LoongArchELFStreamer和LoongArchELFObjectWriter实现。
+
+## 4.2 相关代码
+
++ **InstPrinter/LoongArchInstPrinter.cpp**
+
+​		引入MCTargetDesc/LoongArchMCExpr.h
+
++ **MCTargetDesc/LoongArchAsmBackend(.h/.cpp)**
+
+​		该类实现了重定位(relocation)和回填（fixup）功能。
+
+​		在编译链接阶段常常会出现需要引用尚未解析的符号的情况，例如条件跳转和函数调用时，其跳转地址往往在另一个尚未解析的编译单元中，所以此时链接器还无法给出其准确的跳转地址。为了解决这个问题，有的编译器采用位置无关代码，但该方法在代码工程量较大时会显得十分累赘。现代编译器大多采用回填技术，编码器会使用假设值0作为地址进行编码，然后将该重定位要求记录在重定位表中，用于在真正的目标地址解析完成后，指示后端如何将原来的假地址修改为真实地址。但是由于动态大小的数据结构的存在，有些目标地址的真实值只能在运行时确定，因此一些体系结构甚至将所有的地址分配工作推迟到运行时来完全避免重定位。
+
+​		类中提供了激活回填功能，获取回填类型信息和回填类型数量的接口，定义了高20位和低16位等常用回填类型。
+
++ **MCTargetDesc/LoongArchBaseInfo.h**
+
+​		引入LoongArchMCFixupKinds.h
+
++ **MCTargetDesc/LoongArchELFObjectWriter.cpp**
+
+​		获取重定位类型，写入OBJ格式编码。
+
++ **MCTargetDesc/LoongArchFixupKinds.h**
+
+​		虽然每一个目标地址类型仅对应唯一一个重定位任务，但每一个重定位任务却可以对应多个目标地址类型，因此有必要赋予其特殊命名以用于区分。该头文件中定义了目标地址类型的枚举值，其顺序应与LoongArchAsmBackend中一致，否则将产生歧义（相同名称的枚举值却对应着不同的整数序号）。
+
++ **MCTargetDesc/LoongArchMCCodeEmitter.h/.cpp**
+
+​		二进制码输出的主要类，为Streamer提供发射编码的接口，将MCInst转换为二进制码。
+
+​		encodeInstruction()为编码器执行入口，通过TableGen生成的getBinaryCodeForInstr()方法，根据MI获取指令编码的接口，然后按字节输出。其中还可捕获一些异常情况，例如调用了架构尚未实现的指令（指令编码为0）和伪指令（所有伪指令应全部扩展替换成真实指令了，不应该出现在编码这一层）。
+
+​		getBranchXXTargetOpValue()为不同长度的跳转指令的操作数记录重定位要求，并返回临时的假地址0。
+
+​		实现复杂操作数的编码方法，例如内存操作数的编码函数getMemEncoding()将基址寄存器和偏移值的二进制编码按照指令格式设置到相应的位上。
+
+​		
