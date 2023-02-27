@@ -29,17 +29,12 @@
 
 using namespace llvm;
 
-MCCodeEmitter *llvm::createLoongArchMCCodeEmitterEB(const MCInstrInfo &MCII,
+MCCodeEmitter *llvm::createLoongArchMCCodeEmitter(const MCInstrInfo &MCII,
                                                const MCRegisterInfo &MRI,
                                                MCContext &Ctx) {
   return new LoongArchMCCodeEmitter(MCII, Ctx, false);
 }
 
-MCCodeEmitter *llvm::createLoongArchMCCodeEmitterEL(const MCInstrInfo &MCII,
-                                               const MCRegisterInfo &MRI,
-                                               MCContext &Ctx) {
-  return new LoongArchMCCodeEmitter(MCII, Ctx, true);
-}
 
 void LoongArchMCCodeEmitter::EmitByte(unsigned char C, raw_ostream &OS) const {
   OS << (char)C;
@@ -70,7 +65,7 @@ encodeInstruction(const MCInst &MI, raw_ostream &OS,
     // Pseudo instructions don't get encoded and shouldn't be here
     // in the first place!
   const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
-  uint64_t isPseudo = Desc.isPseudo;
+  bool isPseudo = Desc.isPseudo();
   if (isPseudo)
       llvm_unreachable("Pseudo opcode found in encodeInstruction()");
 

@@ -8,7 +8,6 @@
 #ifndef LLVM_LIB_TARGET_LOONGARCH_MCTARGETDESC_LOONGARCHASMBACKEND_H
 #define LLVM_LIB_TARGET_LOONGARCH_MCTARGETDESC_LOONGARCHASMBACKEND_H
 
-#include "LoongArchConfig.h"
 
 #include "MCTargetDesc/LoongArchFixupKinds.h"
 #include "llvm/ADT/Triple.h"
@@ -65,6 +64,11 @@ public:
     return false;
   }
 
+    /// Relax the instruction in the given fragment to the next wider instruction.
+    void relaxInstruction(const MCInst &Inst, const MCSubtargetInfo &STI,
+                          MCInst &Res) const override {}
+
+    /// @}
   /// @}
 
   bool writeNopData(raw_ostream &OS, uint64_t Count) const override;

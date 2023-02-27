@@ -4,6 +4,7 @@
 #ifndef LLVM_LIB_TARGET_LOONGARCH_LOONGARCHMCINSTLOWER_H
 #define LLVM_LIB_TARGET_LOONGARCH_LOONGARCHMCINSTLOWER_H
 
+#include "MCTargetDesc/LoongArchMCExpr.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/Support/Compiler.h"

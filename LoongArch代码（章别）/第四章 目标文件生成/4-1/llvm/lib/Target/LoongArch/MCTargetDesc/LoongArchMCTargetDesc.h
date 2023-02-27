@@ -13,20 +13,32 @@
 #include <memory>
 
 namespace llvm {
-    class Target;
-    class Triple;
     class MCAsmBackend;
     class MCCodeEmitter;
     class MCContext;
     class MCInstrInfo;
-    class MCObjectWriter;
+    class MCObjectTargetWriter;
     class MCRegisterInfo;
     class MCSubtargetInfo;
+    class MCTargetOptions;
     class StringRef;
-
+    class Target;
+    class Triple;
     class raw_ostream;
+    class raw_pwrite_stream;
 
 extern Target TheLoongArchTarget;
+
+    MCCodeEmitter *createLoongArchMCCodeEmitter(const MCInstrInfo &MCII,
+                                             const MCRegisterInfo &MRI,
+                                             MCContext &Ctx);
+
+    MCAsmBackend *createLoongArchAsmBackend(const Target &T,
+                                       const MCSubtargetInfo &STI,
+                                       const MCRegisterInfo &MRI,
+                                       const MCTargetOptions &Options);
+
+    std::unique_ptr<MCObjectTargetWriter> createLoongArchELFObjectWriter(const Triple &TT);
 
 } // End llvm namespace
 

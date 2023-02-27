@@ -60,7 +60,7 @@ LoongArchTargetLowering::LoongArchTargetLowering(const LoongArchTargetMachine &T
     // Set .align 2,
     // 2 means 2^2 bytes = 4 bytes
     // It will emit .align 2 later
-    setMinFunctionAlignment(Align(2));
+    setMinFunctionAlignment(Align(3));
 
    
 }

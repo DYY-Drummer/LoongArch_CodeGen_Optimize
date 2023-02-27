@@ -7,7 +7,6 @@
 #define LLVM_LIB_TARGET_LOONGARCH_INSTPRINTER_LOONGARCHINSTPRINTER_H
 
 #include "llvm/MC/MCInstPrinter.h"
-#include ""
 
 namespace llvm {
 // These enumeration declarations were orignally in LoongArchInstrInfo.h but

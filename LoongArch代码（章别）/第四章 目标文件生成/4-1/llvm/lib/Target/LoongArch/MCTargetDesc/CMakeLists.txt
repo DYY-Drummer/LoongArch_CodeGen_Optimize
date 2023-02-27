@@ -7,6 +7,7 @@ add_llvm_component_library(LLVMLoongArchDesc
   LoongArchMCCodeEmitter.cpp
   LoongArchMCExpr.cpp
   LoongArchELFObjectWriter.cpp
+  LoongArchELFStreamer.cpp
   LoongArchTargetStreamer.cpp
   
   LINK_COMPONENTS

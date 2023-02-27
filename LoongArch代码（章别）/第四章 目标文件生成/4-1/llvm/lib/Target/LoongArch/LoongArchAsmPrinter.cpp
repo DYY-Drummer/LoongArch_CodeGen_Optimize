@@ -194,17 +194,19 @@ void LoongArchAsmPrinter::EmitFunctionEntryLabel() {
 void LoongArchAsmPrinter::EmitFunctionBodyStart() {
     MCInstLowering.Initialize(&MF->getContext());
 
-    emitFrameDirective();
+    //emitFrameDirective();
 
     if (OutStreamer->hasRawTextSupport()) {
         SmallString<128> Str;
         raw_svector_ostream OS(Str);
-        printSavedRegsBitmask(OS);
+        //printSavedRegsBitmask(OS);
         OutStreamer->EmitRawText(OS.str());
+        /*
         OutStreamer->EmitRawText(StringRef("\t.set\tnoreorder"));
         OutStreamer->EmitRawText(StringRef("\t.set\tnomacro"));
         if (LoongArchMFI->getEmitNOAT())
             OutStreamer->EmitRawText(StringRef("\t.set\tnoat"));
+        */
     }
 }
 

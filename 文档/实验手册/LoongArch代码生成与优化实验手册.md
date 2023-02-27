@@ -1433,7 +1433,7 @@ run
 
 + 可用如下指令分别统计所有.cpp,.td,.h,.txt文件的行数
 
-```
+```bash
 wc -l `find path -name "*.cpp"`|tail -n1
 ```
 
@@ -1442,8 +1442,6 @@ LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注�
 
 
 # 第四章 目标文件生成
-
-## 4.1 简介
 
 ​		在目前为止的编译测试中，我们生成的都是汇编代码的.s文件（通过选项-filetype=asm），我们的后端还不支持生成.obj目标文件。本章将实现对ELF OBJ目标文件的支持，将文本格式的汇编指令转换为由opcode、寄存器编码等组成的数字编码序列。
 
@@ -1461,7 +1459,9 @@ LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注�
 
 ​		将组装好的目标代码写入LLVM内存缓冲区中。由LoongArchELFStreamer和LoongArchELFObjectWriter实现。
 
-## 4.2 相关代码
+
+
+## 4.1 ELF文件相关代码
 
 + **InstPrinter/LoongArchInstPrinter.cpp**
 
@@ -1469,7 +1469,7 @@ LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注�
 
 + **MCTargetDesc/LoongArchAsmBackend(.h/.cpp)**
 
-​		该类实现了重定位(relocation)和回填（fixup）功能。
+​		该类是Asm汇编代码到Obj目标代码的桥梁，不过关于Obj目标代码生成的大部分功能已被MCELFStreamer实现，此处只添加了重定位(relocation)和回填（fixup）功能。
 
 ​		在编译链接阶段常常会出现需要引用尚未解析的符号的情况，例如条件跳转和函数调用时，其跳转地址往往在另一个尚未解析的编译单元中，所以此时链接器还无法给出其准确的跳转地址。为了解决这个问题，有的编译器采用位置无关代码，但该方法在代码工程量较大时会显得十分累赘。现代编译器大多采用回填技术，编码器会使用假设值0作为地址进行编码，然后将该重定位要求记录在重定位表中，用于在真正的目标地址解析完成后，指示后端如何将原来的假地址修改为真实地址。但是由于动态大小的数据结构的存在，有些目标地址的真实值只能在运行时确定，因此一些体系结构甚至将所有的地址分配工作推迟到运行时来完全避免重定位。
 
@@ -1481,20 +1481,106 @@ LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注�
 
 + **MCTargetDesc/LoongArchELFObjectWriter.cpp**
 
-​		获取重定位类型，写入OBJ格式编码。
+​		获取重定位类型（与llvm\include\llvm\BinaryFormat\ELFRelocs\LoongArch.def中的定义相一致），将内存缓冲区的OBJ格式编码写入ELF文件。needsRelocateWithSymbol()函数用于为每条重定位记录指明是否需要在链接阶段调整地址值，若为true，说明在链接阶段，链接器已能获取该重定位的正确地址值；若为false，则说明链接器无法为该重定位提供正确的地址值。
 
 + **MCTargetDesc/LoongArchFixupKinds.h**
 
 ​		虽然每一个目标地址类型仅对应唯一一个重定位任务，但每一个重定位任务却可以对应多个目标地址类型，因此有必要赋予其特殊命名以用于区分。该头文件中定义了目标地址类型的枚举值，其顺序应与LoongArchAsmBackend中一致，否则将产生歧义（相同名称的枚举值却对应着不同的整数序号）。
 
++ **MCTargetDesc/LoongArchMCExpr.h/.cpp**
+
+​		继承自LLVM MCTargetExpr，帮助编码器分析目标架构特定的汇编表达式操作数和表达式修饰符的编码，例如“%call_hi”，“%call_lo”。
+
 + **MCTargetDesc/LoongArchMCCodeEmitter.h/.cpp**
 
-​		二进制码输出的主要类，为Streamer提供发射编码的接口，将MCInst转换为二进制码。
+​		编码器的中心类，为Streamer提供发射编码的接口，将MCInst转换为二进制码。其调用关系图如下所示：
 
-​		encodeInstruction()为编码器执行入口，通过TableGen生成的getBinaryCodeForInstr()方法，根据MI获取指令编码的接口，然后按字节输出。其中还可捕获一些异常情况，例如调用了架构尚未实现的指令（指令编码为0）和伪指令（所有伪指令应全部扩展替换成真实指令了，不应该出现在编码这一层）。
+![LoongArchCodeEmitter调用图](LoongArchCodeEmitter调用图.PNG)
+
+​		使用llc命令输出汇编代码时，首先进入AsmPrinter模块，根据我们指定的选项`-filetype=obj`，选择目标文件的MCObjectStreamer作为输出流，进一步选择ELF文件的输出流MCELFStreamer，然后调用LoongArchMCCodeEmitter中的encodeInstruction()方法。
+
+​		encodeInstruction()为编码器执行入口，通过TableGen生成的getBinaryCodeForInstr()方法，根据MI获取指令编码，并按字节输出，获取指令编码的流程分为四个步骤：
+
+​		1、 encodeInstruction()将指令的Opcode传给getBinaryCodeForInstr()。
+
+​		2、getBinaryCodeForInstr()将指令的操作数逐一传给 getMachineOpValue()。
+
+​		3、getMachineOpValue()返回寄存器/立即数的编码，如果操作数为表达式则调用getExprOpValue()计算编码。
+
+​		4、getBinaryCodeForInstr()返回全部的操作数编码给encodeInstruction()。
+
+其中还可捕获一些异常情况，例如调用了架构尚未实现的指令（指令编码为0）和伪指令（所有伪指令应全部扩展替换成真实指令了，不应该出现在编码这一层）。
 
 ​		getBranchXXTargetOpValue()为不同长度的跳转指令的操作数记录重定位要求，并返回临时的假地址0。
 
 ​		实现复杂操作数的编码方法，例如内存操作数的编码函数getMemEncoding()将基址寄存器和偏移值的二进制编码按照指令格式设置到相应的位上。
 
 ​		
+
++ **MCTargetDesc/LoongArchMCTargetDesc(.h/.cpp)**
+
+​		使用TargetRegistry注册汇编输出流模块createMCStreamer和LoongArchAsmTargetStreamer，注册汇编后端模块LoongArchAsmBackend和编码发射模块LoongArchMCCodeEmitter。
+
+​		同时提供创建各个模块的对象的接口createXXX()。
+
+```c++
+//LoongArchMCTargetDesc.cpp
+TargetRegistry::RegisterMCCodeEmitter(TheLoongArchTarget,
+                                          createLoongArchMCCodeEmitter);
+//LoongArchMCCodeEmitter.cpp
+MCCodeEmitter *llvm::createLoongArchMCCodeEmitter(
+	const MCInstrInfo &MCII, const MCRegisterInfo &MRI, MCContext &Ctx)
+```
+
+​		在阅读如上注册代码时，读者可能会感到疑惑，因为create方法中的参数似乎从未初始化过，这些参数究竟是从何而来？实际上，在注册对象阶段，这些参数确实仍是个未知值，将create方法传入TargetRegistry只不过是为LLVM提供一个函数指针，并不是立即调用。LLVM会保存这个函数指针，并在之后需要创建模块对象时，调用这个create方法（和初始化过的参数一起）。
+
+
+
+## 4.2 输出流
+
+​		LLVM的汇编打印器(AsmPrinter)会根据命令行选项`-filetype=asm/obj`来选择AsmStreamer或ObjectStreamer作为输出流，前者输出文本形式的汇编代码，后者输出ELF形式的目标文件代码。本节将实现AsmPrinter的MCELFObjectStreamer以支持ELF代码输出。
+
++   **MCTargetDesc/LoongArchTargetStreamer.h/.cpp**
+
+​		定义了LoongArch用目标文件编码器的输出流，继承自LLVM MCTargetStreamer。
+
++ **MCTargetDesc/LoongArchELFStreamer.h/.cpp**
+
+​		定义了LoongArch用ELF文件输出流，继承自LLVM MCELFStreamer，用于将准备好的编码写入到LLVM内存缓冲区。
+
++ **编译测试**
+
+​		使用3.1节的输入程序来测试Obj目标代码生成功能。
+
+​		使用llc编译生成.o文件：
+
+```bash
+./llc -march=loongarch -relocation-model=pic -filetype=obj test.ll -o test.o
+```
+
+​		使用llvm-objdump将二进制文件翻译为可读模式（显示的内容编码为十六进制）：
+
+```bash
+llvm-objdump -s test.o
+test.o:	file format ELF32-unknown
+
+Contents of section .strtab:
+ ...
+Contents of section .text:
+ 0000 02bf0063 02800004 298181e4 02801405  ...c....).......
+ ...
+```
+
+​		“Contents of section .text:"段对应着汇编代码中的”# %bb.0:“段，即main函数。LoongArch的指令为32位定长，故第一条指令的Obj编码为”02bf0063“。查看3.1节生成的Asm代码，可知第一条指令的汇编代码为：`addi.w  $r3, $r3, -64`。
+
+​		addi.w为2RI12格式的指令，在小端模式下，其位码排列为`<opcode | I12 | rj | rd>`。其中addi.w的Opcode占10位：0000001010，-64为12位立即数：111111000000，寄存器rj和rd均为栈指针寄存器SP，寄存器编码占5位：00011（十进制的3）。故`addi.w  $r3, $r3, -64`对应的二进制编码应为：00000010101111110000000001100011，即十六进制的`02bf0063`，Obj编码输出正确。
+
+​		在龙芯服务器环境下运行可执行文件：
+
+​		将test.o复制到龙芯服务器中，然后用gcc将.o文件链接为可执行文件并执行：
+
+```bash
+[root@host-192-168-200-44 ~]# gcc -o test test.o
+[root@host-192-168-200-44 ~]# ./test
+```
+

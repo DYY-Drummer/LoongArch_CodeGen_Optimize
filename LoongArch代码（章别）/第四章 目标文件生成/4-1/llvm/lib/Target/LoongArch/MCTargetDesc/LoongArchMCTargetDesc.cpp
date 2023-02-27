@@ -6,12 +6,18 @@
 #include <iostream>
 #include "LoongArchMCTargetDesc.h"
 #include "InstPrinter/LoongArchInstPrinter.h"
+#include "LoongArchAsmBackend.h"
+#include "LoongArchELFStreamer.h"
 #include "LoongArchMCAsmInfo.h"
+#include "LoongArchTargetStreamer.h"
+#include "llvm/ADT/Triple.h"
+#include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MachineLocation.h"
 #include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCInstrAnalysis.h"
 #include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbol.h"
@@ -104,6 +110,22 @@ static MCInstrAnalysis *createLoongArchMCInstrAnalysis(const MCInstrInfo *Info) 
     return new LoongArchMCInstrAnalysis(Info);
 }
 
+static MCStreamer *createMCStreamer(const Triple &TT, MCContext &Context,
+                                    std::unique_ptr<MCAsmBackend> &&MAB,
+                                    std::unique_ptr<MCObjectWriter> &&OW,
+                                    std::unique_ptr<MCCodeEmitter> &&Emitter,
+                                    bool RelaxAll) {
+    return createELFStreamer(Context, std::move(MAB), std::move(OW),
+                             std::move(Emitter), RelaxAll);;
+}
+
+static MCTargetStreamer *createLoongArchAsmTargetStreamer(MCStreamer &S,
+                                                     formatted_raw_ostream &OS,
+                                                     MCInstPrinter *InstPrint,
+                                                     bool isVerboseAsm) {
+    return new LoongArchTargetAsmStreamer(S, OS);
+}
+
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeLoongArchTargetMC() {
 
     for (Target *T : {&TheLoongArchTarget}) {
@@ -116,6 +138,15 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeLoongArchTargetMC() {
         // Register the MC register info
         TargetRegistry::RegisterMCRegInfo(*T, createLoongArchMCRegisterInfo);
 
+        // Register the elf streamer.
+        TargetRegistry::RegisterELFStreamer(*T, createMCStreamer);
+
+        // Register the asm target streamer.
+        TargetRegistry::RegisterAsmTargetStreamer(*T, createLoongArchAsmTargetStreamer);
+
+        // Register the asm backend.
+        TargetRegistry::RegisterMCAsmBackend(*T, createLoongArchAsmBackend);
+
         // Register the MC Subtarget info
         TargetRegistry::RegisterMCSubtargetInfo(*T, createLoongArchMCSubtargetInfo);
 
@@ -125,4 +156,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeLoongArchTargetMC() {
         // Register the MC instruction printer
         TargetRegistry::RegisterMCInstPrinter(*T, createLoongArchMCInstPrinter);
     }
+    // Register the MC Code Emitter
+    TargetRegistry::RegisterMCCodeEmitter(TheLoongArchTarget,
+                                          createLoongArchMCCodeEmitter);
 }

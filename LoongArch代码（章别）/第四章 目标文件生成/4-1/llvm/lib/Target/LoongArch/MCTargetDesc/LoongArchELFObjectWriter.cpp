@@ -7,7 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "LoongArchConfig.h"
 
 #include "MCTargetDesc/LoongArchBaseInfo.h"
 #include "MCTargetDesc/LoongArchFixupKinds.h"

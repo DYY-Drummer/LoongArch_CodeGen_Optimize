@@ -8,8 +8,6 @@
 #ifndef LLVM_LIB_TARGET_LOONGARCH_MCTARGETDESC_LOONGARCHMCCODEEMITTER_H
 #define LLVM_LIB_TARGET_LOONGARCH_MCTARGETDESC_LOONGARCHMCCODEEMITTER_H
 
-#include "LoongArchConfig.h"
-
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/Support/DataTypes.h"
 
