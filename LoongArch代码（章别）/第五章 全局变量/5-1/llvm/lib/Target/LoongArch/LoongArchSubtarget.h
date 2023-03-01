@@ -21,6 +21,9 @@
 #define GET_SUBTARGETINFO_HEADER
 #include "LoongArchGenSubtargetInfo.inc"
 
+extern bool LoongArchReserveGP;
+extern bool LoongArchNoCpload;
+
 namespace llvm {
     class StringRef;
 
@@ -56,6 +59,9 @@ namespace llvm {
         bool HasSlt;
 
         InstrItineraryData InstrItins;
+
+        // UseSmallSection - Small section is used.
+        bool UseSmallSection;
 
         const LoongArchTargetMachine &TM;
 
@@ -98,6 +104,8 @@ namespace llvm {
         bool hasLaGlobalWithPcrel() const { return HasLaGlobalWithPcrel; }
         bool hasLaGlobalWithAbs() const { return HasLaGlobalWithAbs; }
         bool hasLaLocalWithAbs() const { return HasLaLocalWithAbs; }
+
+        bool useSmallSection() const { return UseSmallSection; }
 
         bool abiUsesSoftFloat() const;
 

@@ -32,6 +32,22 @@ static cl::opt<bool> EnableOverflowOpt
          cl::desc("Use trigger overflow instructions add and sub \
          instead of non-overflow instructions addu and subu"));
 
+static cl::opt<bool> UseSmallSectionOpt
+        ("loongarch-use-small-section", cl::Hidden, cl::init(false),
+         cl::desc("Use small section. Only work when -relocation-model="
+                  "static. pic always not use small section."));
+
+static cl::opt<bool> ReserveGPOpt
+        ("loongarch-reserve-gp", cl::Hidden, cl::init(false),
+         cl::desc("Never allocate $gp to variable"));
+
+static cl::opt<bool> NoCploadOpt
+        ("loongarch-no-cpload", cl::Hidden, cl::init(false),
+         cl::desc("No issue .cpload"));
+
+bool LoongArchReserveGP;
+bool LoongArchNoCpload;
+
 void LoongArchSubtarget::anchor() { }
 
 LoongArchSubtarget::LoongArchSubtarget(const Triple &TT, const std::string &CPU,
@@ -47,6 +63,10 @@ LoongArchSubtarget::LoongArchSubtarget(const Triple &TT, const std::string &CPU,
 
     EnableOverflow = EnableOverflowOpt;
 
+    // Set UseSmallSection.
+    UseSmallSection = UseSmallSectionOpt;
+    LoongArchReserveGP = ReserveGPOpt;
+    LoongArchNoCpload = NoCploadOpt;
 }
 
 bool LoongArchSubtarget::isPositionIndependent() const {

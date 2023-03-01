@@ -340,6 +340,8 @@ def ADDI_W : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12>;
 
   ELF (Executable and Linkable Format)是可执行程序、目标代码(object file)、共享库的通用文件格式。文件中定义了LoongArch的ELF文件支持信息。
 
+  ELF.h中新增LoongArch的机器架构识别代号258，虽然在LLVM10项目中该机器代号还未注册，不过该代号将来会被绑定到生成的ELF目标文件中（可使用`llvm-readelf -h XXX.o`指令查看)，正确的代号关系到目标文件能否被龙芯操作系统接收运行。龙芯的机器架构代号自LLVM15起开始支持，最新的支持代号名单可查看http://www.uxsglobal.com/developers/gabi/latest/ch4.eheader.html。
+
 + **llvm/lib/MC/MCSubtargetInfo.cpp**
 
   Subtarget是Target基于不同CPU架构的细分（例如32位和64位的），编译时可以使用`-mcpu=` 和 `-mattr=`命令行选项指定某一个Subtarget。
@@ -588,7 +590,7 @@ int main() {
 
 + **LoongArchTargetObjectFile(.h/.cpp)**
 
-​		定义了目标文件（ELF文件）的相关规范和初始化函数。不同的编译器对于程序的存储分配策略不尽相同，但是大都符合三段式结构：Text段、Data段和BSS(Block Started by Symbol)段。Text段用于存放代码，Data段用于存放有初始值的数据，BSS段用于存放未初始化的数据。.sdata和.sbss的s前缀代表“small”，该形式能节省ELF文件占用的内存。
+​		定义了目标文件（ELF文件）的相关规范和初始化函数。不同的编译器对于程序的存储分配策略不尽相同，但是大都符合三段式结构：Text段、Data段和BSS(Block Started by Symbol)段。Text段用于存放代码，Data段用于存放有初始值的数据，BSS段用于存放未初始化的数据。.sdata和.sbss的s前缀代表“small”，该形式使用16位寻址，寻址需要指令数少，能节省ELF文件占用的内存，但寻址空间较小。
 
 + **LoongArchTargetMachine(.h/.cpp)**
 
@@ -742,6 +744,8 @@ addRegisterClass(MVT::i32, &LoongArch::GPRRegClass);
 
 ​		Subtarget类是本节的中心，提供各类的调用接口。
 
+​		规定栈对齐方式为8字节。
+
 ​		初始化目标机器设定，终端命令"-mcpu"选项处选择的CPU将在这里匹配（默认为LoongArch32），设定机器Features（默认不应用）。
 
 + **LoongArch(SE)RegisterInfo(.h/.cpp)**
@@ -839,7 +843,7 @@ def mem : Operand<iPTR> {
 
 + **LoongArchISelLowering.cpp**
 
-​		设置函数对齐方式为2的3次方，即八字节。
+​		设置函数对齐方式为8字节，汇编时会输出`.p2align 3`，即2的3次方字节。若对齐位数不是2的次方，llc命令将会报错。
 
 + **LoongArchMachineFunctionInfo.h**
 
@@ -994,7 +998,7 @@ def : InstAlias<"jr $rj",                (JIRL      ZERO, GPROut:$rj, 0), 3>;
 	.previous
 	.file	"test.c"
 	.globl	main                    # -- Begin function main
-	.p2align	1
+	.p2align	3
 	.type	main,@function
 	.ent	main                    # @main
 main:
@@ -1575,6 +1579,8 @@ Contents of section .text:
 
 ​		addi.w为2RI12格式的指令，在小端模式下，其位码排列为`<opcode | I12 | rj | rd>`。其中addi.w的Opcode占10位：0000001010，-64为12位立即数：111111000000，寄存器rj和rd均为栈指针寄存器SP，寄存器编码占5位：00011（十进制的3）。故`addi.w  $r3, $r3, -64`对应的二进制编码应为：00000010101111110000000001100011，即十六进制的`02bf0063`，Obj编码输出正确。
 
+​		可使用`llvm-readelf -h test.o`查看ELF文件具体格式信息
+
 ​		在龙芯服务器环境下运行可执行文件：
 
 ​		将test.o复制到龙芯服务器中，然后用gcc将.o文件链接为可执行文件并执行：
@@ -1584,3 +1590,22 @@ Contents of section .text:
 [root@host-192-168-200-44 ~]# ./test
 ```
 
+
+
+
+
+# 第五章 全局变量
+
+​		目前为止我们只处理了局部变量相关指令，本章将实现全局变量相关指令。与局部变量不同，翻译全局变量时的IR DAG是在运行时生成的，而局部变量的DAG是编译时根据描述文件生成的。本章的重点在于如何实现在运行时创建DAG，以及如何使用.td文件描述运行时生成的DAG的模式匹配规则。
+
+​		LoongArch的重定位模式分为静态模式（static，或称绝对寻址模式）和位置无关代码（PIC）模式两种，可通过`-relocation-mode`选项指定；数据存储方式分为.data/.bss模式和.sdata/.sbss模式两种（如2.1节中介绍的），可通过`-loongarch-use-small-section`选项指定，前者以32位寻址，计算地址所需指令数多，可寻址空间大，后者以16位寻址，指令效率高，可寻址空间小。通过以上两个选项的组合可生成2×2=4种格式的目标文件。
+
+
+
+## 5.1 全局变量选项
+
++ **LoongArchSubtarget（.h/.cpp）**
+
+​		为支持全局变量存储模式选择，首先应添加命令行选项`-loongarch-use-small-section`到llc编译指令中。我们使用LLVM CL函数库添加命令行选项，CL是LLVM内置的命令行参数解析库，使用声明式的方法来指定命令行选项。关于LLVM CL的更多信息请参考：https://llvm.org/docs/CommandLine.html。
+
+​		另外还一并添加了是否允许将全局指针寄存器GP分配给其他变量的选项`loongarch-reserve-gp`和是否在函数头使用.cpload（该伪指令指示编译器在使用全局指针寄存器前不需要保存它的旧值）的选项`loongarch-no-cpload`，这两个选项将在后面用到。
