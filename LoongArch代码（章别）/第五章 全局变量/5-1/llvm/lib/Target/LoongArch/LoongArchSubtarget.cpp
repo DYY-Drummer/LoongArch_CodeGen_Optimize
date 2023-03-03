@@ -67,6 +67,12 @@ LoongArchSubtarget::LoongArchSubtarget(const Triple &TT, const std::string &CPU,
     UseSmallSection = UseSmallSectionOpt;
     LoongArchReserveGP = ReserveGPOpt;
     LoongArchNoCpload = NoCploadOpt;
+#ifdef ENABLE_GPRESTORE
+    if (!TM.isPositionIndependent() && !UseSmallSection && !LoongArchReserveGP)
+        FixGlobalBaseReg = false;
+    else
+#endif
+        FixGlobalBaseReg = true;
 }
 
 bool LoongArchSubtarget::isPositionIndependent() const {

@@ -30,11 +30,11 @@ namespace llvm {
             // Tail call
             TailCall,
 
-            // Get the Higher 16 bits from a 32-bit immediate
+            // Get the Higher 20 bits from a 32-bit immediate
             // No relation with LoongArch Hi register
             Hi,
 
-            // Get the Lower 16 bits from a 32-bit immediate
+            // Get the Lower 12 bits from a 32-bit immediate
             // No relation with LoongArch Lo register
             Lo,
 
@@ -78,6 +78,72 @@ namespace llvm {
         const char *getTargetNodeName(unsigned Opcode) const override;
 
     protected:
+        SDValue getGlobalReg(SelectionDAG &DAG, EVT Ty) const;
+
+        // This method creates the following nodes, which are necessary for
+        // computing a local symbol's address:
+        // (add (load (wrapper $gp, $got(sym)), %lo(sym))
+        template<class NodeTy>
+        SDValue getAddrLocal(NodeTy *N, EVT Ty, SelectionDAG &DAG) const {
+            SDLoc DL(N);
+            unsigned GOTFlag =LoongArch::MO_GOT;
+            SDValue GOT = DAG.getNode(LoongArchISD::Wrapper, DL, Ty, getGlobalReg(DAG, Ty),
+                                      getTargetNode(N, Ty, DAG, GOTFlag));
+            SDValue Load =
+                    DAG.getLoad(Ty, DL, DAG.getEntryNode(), GOT,
+                                MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+            unsigned LoFlag = LoongArch::MO_ABS_LO;
+            SDValue Lo = DAG.getNode(LoongArchISD::Lo, DL, Ty,
+                                     getTargetNode(N, Ty, DAG, LoFlag));
+            return DAG.getNode(ISD::ADD, DL, Ty, Load, Lo);
+        }
+
+        // This method creates the following nodes, which are necessary for
+        // computing a global symbol's address:
+        //
+        // (load (warpper $gp, %got(sym)))
+        template<class NodeTy>
+        SDValue getAddrGlobal(NodeTy *N, EVT Ty, SelectionDAG &DAG,
+                              unsigned Flag, SDValue Chain,
+                              const MachinePointerInfo &PtrInfo) const {
+            SDLoc DL(N);
+            SDValue Tgt = DAG.getNode(LoongArchISD::Wrapper, DL, Ty, getGlobalReg(DAG, Ty),
+                                      getTargetNode(N, Ty, DAG, Flag));
+            return DAG.getLoad(Ty, DL, Chain, Tgt, PtrInfo);
+        }
+
+        // This method creates the following nodes, which are necessary for
+        // computing a global symbol's address in large-GOT mode:
+        //
+        // (load (wrapper (add %hi(sym), $gp), %lo(sym)))
+        template<class NodeTy>
+        SDValue getAddrGlobalLargeGOT(NodeTy *N, EVT Ty, SelectionDAG &DAG,
+                                      unsigned HiFlag, unsigned LoFlag,
+                                      SDValue Chain,
+                                      const MachinePointerInfo &PtrInfo) const {
+            SDLoc DL(N);
+            SDValue Hi = DAG.getNode(LoongArchISD::Hi, DL, Ty,
+                                     getTargetNode(N, Ty, DAG, HiFlag));
+            Hi = DAG.getNode(ISD::ADD, DL, Ty, Hi, getGlobalReg(DAG, Ty));
+            SDValue Wrapper = DAG.getNode(LoongArchISD::Wrapper, DL, Ty, Hi,
+                                          getTargetNode(N, Ty, DAG, LoFlag));
+            return DAG.getLoad(Ty, DL, Chain, Wrapper, PtrInfo);
+        }
+
+        // This method creates the following nodes, which are necessary for
+        // computing a symbol's address in non-PIC mode:
+        //
+        // (add %hi(sym), %lo(sym))
+        template<class NodeTy>
+        SDValue getAddrNonPIC(NodeTy *N, EVT Ty, SelectionDAG &DAG) const {
+            SDLoc DL(N);
+            SDValue Hi = getTargetNode(N, Ty, DAG, LoongArch::MO_ABS_HI);
+            SDValue Lo = getTargetNode(N, Ty, DAG, LoongArch::MO_ABS_LO);
+            return DAG.getNode(ISD::ADD, DL, Ty,
+                               DAG.getNode(LoongArchISD::Hi, DL, Ty, Hi),
+                               DAG.getNode(LoongArchISD::Lo, DL, Ty, Lo));
+        }
+
         // Byval argument information.
         struct ByValArgInfo {
             unsigned FirstIdx;  // Index of the first register used.

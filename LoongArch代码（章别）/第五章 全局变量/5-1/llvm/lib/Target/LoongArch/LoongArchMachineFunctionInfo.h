@@ -19,12 +19,16 @@ namespace llvm {
     public:
         LoongArchMachineFunctionInfo(MachineFunction &MF)
                 : MF(MF),  SRetReturnReg(0), CallsEhReturn(false), CallsEhDwarf(false),
-                  VarArgsFrameIndex(0), MaxCallFrameSize(0), EmitNOAT(false) { }
+                  VarArgsFrameIndex(0), MaxCallFrameSize(0), EmitNOAT(false), GlobalBaseReg(0) { }
 
         ~LoongArchMachineFunctionInfo();
 
         unsigned getSRetReturnReg() const { return SRetReturnReg; }
         void setSRetReturnReg(unsigned Reg) { SRetReturnReg = Reg; }
+
+        bool globalBaseRegFixed() const;
+        bool globalBaseRegSet() const;
+        unsigned getGlobalBaseReg();
 
         int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
         void setVarArgsFrameIndex(int Index) { VarArgsFrameIndex = Index; }
@@ -72,6 +76,12 @@ namespace llvm {
         unsigned MaxCallFrameSize;
 
         bool EmitNOAT;
+
+        // GlobalBaseReg - Keeps track of the virtual register initialized for use as the global
+        // base register. This is used for PIC in some PIC relocation models.
+        unsigned GlobalBaseReg;
+
+        int GPFI;  // Index of the frame object for restoring $gp
     };
 } // End llvm namespace
 #endif

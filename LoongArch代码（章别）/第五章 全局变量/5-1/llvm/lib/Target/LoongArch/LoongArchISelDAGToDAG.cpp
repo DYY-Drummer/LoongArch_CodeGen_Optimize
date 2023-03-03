@@ -76,6 +76,20 @@ bool LoongArchDAGToDAGISel::SelectAddr(SDNode *Parent, SDValue Addr, SDValue &Ba
         return true;
     }
 
+    // on PIC code Load GA
+    if (Addr.getOpcode() == LoongArchISD::Wrapper) {
+        Base = Addr.getOperand(0);
+        Offset = Addr.getOperand(1);
+        return true;
+    }
+
+    // static
+    if (TM.getRelocationModel() != Reloc::PIC_) {
+        if ((Addr.getOpcode() == ISD::TargetExternalSymbol ||
+             Addr.getOpcode() == ISD::TargetGlobalAddress))
+            return false;
+    }
+
     Base = Addr;
     Offset = CurDAG->getTargetConstant(0, DL, ValTy);
     return true;
@@ -102,8 +116,20 @@ void LoongArchDAGToDAGISel::Select(SDNode *Node) {
 
     switch(Opcode) {
         default: break;
+        // Get target GOT address.
+        case ISD::GLOBAL_OFFSET_TABLE:
+            ReplaceNode(Node, getGlobalBaseReg());
+            return;
     }
 
     // Select the default instruction defined in LoongArchGenDAGISel.inc
     SelectCode(Node);
+}
+
+// Output the instructions required to put the GOT address into a register.
+SDNode *LoongArchDAGToDAGISel::getGlobalBaseReg() {
+    unsigned GlobalBaseReg = MF->getInfo<LoongArchMachineFunctionInfo>()->getGlobalBaseReg();
+    return CurDAG->getRegister(GlobalBaseReg, getTargetLowering()->getPointerTy(
+                    CurDAG->getDataLayout()))
+            .getNode();
 }

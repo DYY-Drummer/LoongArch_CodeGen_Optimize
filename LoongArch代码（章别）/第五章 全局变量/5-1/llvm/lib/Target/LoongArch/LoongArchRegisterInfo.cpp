@@ -54,6 +54,12 @@ getReservedRegs(const MachineFunction &MF) const {
     for (unsigned I = 0; I < array_lengthof(ReservedCPURegs); ++I)
         Reserved.set(ReservedCPURegs[I]);
 
+#ifdef ENABLE_GPRESTORE
+    const LoongArchMachineFunctionInfo *LoongArchFI = MF.getInfo<LoongArchMachineFunctionInfo>();
+    // Reserve GP if globalBaseRegFixed()
+    if (LoongArchFI->globalBaseRegFixed())
+#endif
+        Reserved.set(LoongArch::GP);
     return Reserved;
 }
 

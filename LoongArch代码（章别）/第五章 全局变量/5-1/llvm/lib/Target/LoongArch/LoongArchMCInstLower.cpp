@@ -37,6 +37,29 @@ static void CreateMCInst(MCInst &Inst, unsigned Opc, const MCOperand &Operand0,
         Inst.addOperand(Operand2);
 }
 
+// Lower ".cpload $reg" to
+//  "lu12i.w    $gp, %hi(_gp_disp)"
+//  "addi.w  $gp, $gp, %lo(_gp_disp)"
+//  "add.w   $gp, $gp, $t7"
+void LoongArchMCInstLower::LowerCPLOAD(SmallVector<MCInst, 4>& MCInsts) {
+    MCOperand GPReg = MCOperand::createReg(LoongArch::GP);
+    MCOperand T7Reg = MCOperand::createReg(LoongArch::T7);
+    StringRef SymName("_gp_disp");
+    const MCSymbol *Sym = Ctx->getOrCreateSymbol(SymName);
+    const LoongArchMCExpr *MCSym;
+
+    MCSym = LoongArchMCExpr::create(Sym, LoongArchMCExpr::LEK_ABS_HI, *Ctx);
+    MCOperand SymHi = MCOperand::createExpr(MCSym);
+    MCSym = LoongArchMCExpr::create(Sym, LoongArchMCExpr::LEK_ABS_LO, *Ctx);
+    MCOperand SymLo = MCOperand::createExpr(MCSym);
+
+    MCInsts.resize(3);
+
+    CreateMCInst(MCInsts[0], LoongArch::LU12I_W, GPReg, SymHi);
+    CreateMCInst(MCInsts[1], LoongArch::ORI, GPReg, GPReg, SymLo);
+    CreateMCInst(MCInsts[2], LoongArch::ADD_W, GPReg, GPReg, T7Reg);
+}
+
 MCOperand LoongArchMCInstLower::LowerOperand(const MachineOperand &MO,
                                         unsigned offset) const {
     MachineOperandType MOTy = MO.getType();

@@ -196,17 +196,44 @@ void LoongArchAsmPrinter::EmitFunctionBodyStart() {
 
     //emitFrameDirective();
 
+    //emit .cpload or not
+    bool EmitCPLoad = (MF->getTarget().getRelocationModel() == Reloc::PIC_) &&
+            LoongArchMFI->globalBaseRegSet() &&
+            LoongArchMFI->globalBaseRegFixed();
+    if (LoongArchNoCpload)
+        EmitCPLoad = false;
+
+
+    /*
+    // RawTextSupport - Pseudo instruction (e.g. .set, .macro) between
+    // function label and function body in .s file.
+    // Uncomment this part if LoongArch supports emitting unformatted
+    // text to the .s file with EmitRawText in the future.
     if (OutStreamer->hasRawTextSupport()) {
         SmallString<128> Str;
         raw_svector_ostream OS(Str);
-        //printSavedRegsBitmask(OS);
+        printSavedRegsBitmask(OS);
         OutStreamer->EmitRawText(OS.str());
-        /*
+
         OutStreamer->EmitRawText(StringRef("\t.set\tnoreorder"));
+
+          // Emit .cpload directive if needed.
+        if (EmitCPLoad)
+            OutStreamer->EmitRawText(StringRef("\t.cpload\t$t9"));
+
         OutStreamer->EmitRawText(StringRef("\t.set\tnomacro"));
         if (LoongArchMFI->getEmitNOAT())
             OutStreamer->EmitRawText(StringRef("\t.set\tnoat"));
-        */
+
+    }
+    */
+    // Emit instructions instead of emitting .cpload
+    if (EmitCPLoad) {
+        SmallVector<MCInst, 4> MCInsts;
+        MCInstLowering.LowerCPLOAD(MCInsts);
+        for (SmallVector<MCInst, 4>::iterator I = MCInsts.begin();
+             I != MCInsts.end(); ++I)
+            OutStreamer->EmitInstruction(*I, getSubtargetInfo());
     }
 }
 
@@ -219,13 +246,13 @@ void LoongArchAsmPrinter::EmitFunctionBodyEnd() {
     // There are instruction for this macros, but they must
     // always be at the function end, and we can't emit and
     // break with BB logic.
-    if (OutStreamer->hasRawTextSupport()) {
+    /*if (OutStreamer->hasRawTextSupport()) {
         if (LoongArchMFI->getEmitNOAT())
             OutStreamer->EmitRawText(StringRef("\t.set\tat"));
         OutStreamer->EmitRawText(StringRef("\t.set\tmacro"));
         OutStreamer->EmitRawText(StringRef("\t.set\treorder"));
         OutStreamer->EmitRawText("\t.end\t" + Twine(CurrentFnSym->getName()));
-    }
+    }*/
 }
 
 //	.section .mdebug.abi32

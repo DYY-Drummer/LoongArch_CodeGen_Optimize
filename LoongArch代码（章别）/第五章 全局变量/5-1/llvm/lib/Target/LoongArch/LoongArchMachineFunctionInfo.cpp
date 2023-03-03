@@ -19,4 +19,14 @@ bool FixGlobalBaseReg;
 
 LoongArchMachineFunctionInfo::~LoongArchMachineFunctionInfo() { }
 
+bool LoongArchFunctionInfo::globalBaseRegFixed() const {
+    return FixGlobalBaseReg;
+}
+bool LoongArchFunctionInfo::globalBaseRegSet() const {
+    return GlobalBaseReg;
+}
+unsigned LoongArchFunctionInfo::getGlobalBaseReg() {
+    return GlobalBaseReg = LoongArch::GP;
+}
+
 void LoongArchMachineFunctionInfo::anchor() { }

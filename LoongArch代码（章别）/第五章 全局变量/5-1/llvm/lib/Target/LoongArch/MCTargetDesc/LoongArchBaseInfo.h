@@ -19,7 +19,7 @@ namespace llvm {
 
 // LoongArch32 - This namespace holds all of the target specific flags that
 // instruction info tracks
-    namespace LoongArchII {
+    namespace LoongArch{
         // Target Operand Flag enum.
         enum TOF {
             MO_NO_FLAG,
@@ -29,7 +29,10 @@ namespace llvm {
             // during execution. This is different from the above since this flag
             // can only be present in call instructions.
             MO_GOT_CALL,
-
+            // MO_GOT16: Represents the offset into the global offset table at which
+            // the address the relocation entry symbol resides during execution.
+            MO_GOT16,
+            MO_GOT,
             // MO_GPREL: Represents the offset from the current gp value to be used
             // for the relocatable object file being produced.
             MO_GPREL,
@@ -40,8 +43,8 @@ namespace llvm {
             MO_ABS_LO,
 
             // MO_GOT_HI16/LO16: Relocations used for large GOTs.
-            MO_GOT_HI16,
-            MO_GOT_LO16
+            MO_GOT_HI20,
+            MO_GOT_LO12
         };
 
         // These are the standard/most common forms for LoongArch instructions.

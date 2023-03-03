@@ -46,7 +46,7 @@ let Namespace = "LoongArch" in {
   def T5   : LoongArchGPRReg<17, "r17", ["t5"]>,   DwarfRegNum<[17]>;
   def T6   : LoongArchGPRReg<18, "r18", ["t6"]>,   DwarfRegNum<[18]>;
   def T7   : LoongArchGPRReg<19, "r19", ["t7"]>,   DwarfRegNum<[19]>;
-  def T8   : LoongArchGPRReg<20, "r20", ["t8"]>,   DwarfRegNum<[20]>;
+  def GP   : LoongArchGPRReg<20, "r20", ["gp","t8"]>,   DwarfRegNum<[20]>;
   def R21   : LoongArchGPRReg<21, "r21", [""]>,   DwarfRegNum<[21]>;
   def FP   : LoongArchGPRReg<22, "r22", ["fp","s9"]>,   DwarfRegNum<[22]>;
   def S0   : LoongArchGPRReg<23, "r23", ["s0"]>,   DwarfRegNum<[23]>;
@@ -72,12 +72,12 @@ let Namespace = "LoongArch" in {
 def GPR : RegisterClass<"LoongArch", [i32], 32, (add
   // Argument registers (a0...a7)
   A0, A1, A2, A3, A4, A5, A6, A7,
-  // Temporary registers (t0...t8)
-  T0, T1, T2, T3, T4, T5, T6, T7, T8,
+  // Temporary registers (t0...t7)
+  T0, T1, T2, T3, T4, T5, T6, T7,
   // Static Registers (fp, s0...s8)
   FP, S0, S1, S2, S3, S4, S5, S6, S7, S8,
-  // Specials (zero, ra, tp, sp)
-  ZERO, RA, TP, SP,
+  // Specials (zero, ra, tp, sp, gp)
+  ZERO, RA, TP, SP, GP,
   // Reserved(Non-allocatable)
   R21
   )>;

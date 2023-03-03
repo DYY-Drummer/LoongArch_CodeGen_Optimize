@@ -56,8 +56,8 @@ LoongArchTargetLowering::LoongArchTargetLowering(const LoongArchTargetMachine &T
     setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i32 , Expand);
     setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::Other , Expand);
 
-
-
+    //let llc know we have customized global address computation define
+    setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
 
     // It will emit ".p2align 3"
     // 3 means 2^3 bytes = 8 bytes
@@ -228,4 +228,68 @@ MVT LoongArchTargetLowering::LoongArchCC::getRegVT(MVT VT, const Type *OrigTy,
         return VT;
 
     return VT;
+}
+
+SDValue LoongArchTargetLowering::getGlobalReg(SelectionDAG &DAG, EVT Ty) const {
+    LoongArchMachineFunctionInfo *FI = DAG.getMachineFunction()
+            .getInfo<LoongArchMachineFunctionInfo>();
+    return DAG.getRegister(FI->getGlobalBaseReg(), Ty);
+}
+
+SDValue LoongArchTargetLowering::getTargetNode(GlobalAddressSDNode *N, EVT Ty,
+                                          SelectionDAG &DAG,
+                                          unsigned Flag) const {
+    return DAG.getTargetGlobalAddress(N->getGlobal(), SDLoc(N), Ty, 0, Flag);
+}
+
+SDValue LoongArchTargetLowering::getTargetNode(ExternalSymbolSDNode *N, EVT Ty,
+                                          SelectionDAG &DAG,
+                                          unsigned Flag) const {
+    return DAG.getTargetExternalSymbol(N->getSymbol(), Ty, Flag);
+}
+
+SDValue LoongArchTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
+    switch (Op.getOpcode()) {
+        case ISD::GlobalAddress:  return LowerGlobalAddress(Op, DAG);
+    }
+    return SDValue();
+}
+
+SDValue LoongArchTargetLowering::LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const {
+    SDLoc DL(Op);
+    const LoongArchTargetObjectFile *TLOF =
+            static_cast<const LoongArchTargetObjectFile *>(
+                    getTargetMachine().getObjFileLowering());
+
+    EVT Ty = Op.getValueType();
+    GlobalAddressSDNode *N = cast<GlobalAddressSDNode>(Op);
+    const GlobalValue *GV = N->getGlobal();
+    const GlobalObject *GO = GV->getBaseObject();
+
+    if (!isPositionIndependent()) {
+        // %gp_rel relocation
+        if (GO && TLOF->IsGlobalInSmallSection(GO, getTargetMachine())) {
+            SDValue GA = DAG.getTargetGlobalAddress(GV, DL, MVT::i32, 0,
+                                                    LoongArch::MO_GPREL);
+            SDValue GPRelNode = DAG.getNode(LoongArchISD::GPRel, DL,
+                                            DAG.getVTList(MVT::i32), GA);
+            SDValue GPReg = DAG.getRegister(LoongArch::GP, MVT::i32);
+            return DAG.getNode(ISD::ADD, DL, MVT::i32, GPReg, GPRelNode);
+        }
+
+        // %hi/%lo relocation
+        return getAddrNonPIC(N, Ty, DAG);
+    }
+
+    if (GV->hasInternalLinkage() || (GV->hasLocalLinkage() && !isa<Function>(GV)))
+        return getAddrLocal(N, Ty, DAG);
+
+    // large section
+    if (!TLOF->IsGlobalInSmallSection(GO, getTargetMachine()))
+        return getAddrGlobalLargeGOT(N, Ty, DAG, LoongArch::MO_GOT_HI20,
+                                     LoongArch::MO_GOT_LO12, DAG.getEntryNode(),
+                                     MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    return getAddrGlobal(N, Ty, DAG, LoongArch::MO_GOT, DAG.getEntryNode(),
+                         MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+
 }

@@ -13,6 +13,12 @@ namespace llvm {
         MCSection *SmallDataSection;
         MCSection *SmallBSSSection;
         const LoongArchTargetMachine *TM;
+
+        bool IsGlobalInSmallSection(const GlobalObject *GO,
+                                    const TargetMachine &TM, SectionKind Kind) const;
+        bool IsGlobalInSmallSectionImpl(const GlobalObject *GO,
+                                        const TargetMachine &TM) const;
+
     public:
         void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
 

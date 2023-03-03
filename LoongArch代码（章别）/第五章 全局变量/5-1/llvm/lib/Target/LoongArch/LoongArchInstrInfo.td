@@ -12,15 +12,19 @@
 //class SDTypeProfile<int numresults, int numoperands, list<SDTypeConstraint> constraints>
 def SDT_LoongArchRet          : SDTypeProfile<1, 2, [SDTCisInt<0>]>;
 
-def SDT_LoongArchDivRem       : SDTypeProfile<0, 2, [SDTCisInt<0>, SDTCisSameAs<0, 1>]>;
+
+// Hi and Lo nodes are used to handle global addresses. Used on
+// LoongArchISelLowering to lower stuff like GlobalAddress, ExternalSymbol
+// static model.
+def LoongArchHi    : SDNode<"LoongArchISD::Hi", SDTIntUnaryOp>;
+def LoongArchLo    : SDNode<"LoongArchISD::Lo", SDTIntUnaryOp>;
+def LoongArchGPRel : SDNode<"LoongArchISD::GPRel", SDTIntUnaryOp>;
 
 // Return
 def LoongArchRet : SDNode<"LoongArchISD::Ret", SDTNone,
                      [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
-// DivRem(u)
-def LoongArchDivRem  : SDNode<"LoongArchISD::DivRem", SDT_LoongArchDivRem, [SDNPOutGlue]>;
-def LoongArchDivRemU : SDNode<"LoongArchISD::DivRemU", SDT_LoongArchDivRem, [SDNPOutGlue]>;
+def LoongArchWrapper : SDNode<"LoongArchISD::Wrapper", SDTIntBinOp>;
 
 //===----------------------------------------------------------------------===//
 // LoongArch Instruction Predicate Definitions.
@@ -30,6 +34,7 @@ def DisableOverflow : Predicate<"Subtarget->disableOverflow()">;
 
 def HasSlt          : Predicate<"Subtarget->hasSlt()">;
 
+def RelocPIC        : Predicate<"TM.getRelocationModel() == Reloc::PIC_">;
 //===----------------------------------------------------------------------===//
 // Instruction format superclass
 //===----------------------------------------------------------------------===//
@@ -421,6 +426,21 @@ def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;
 def : Pat<(rotl GPR:$rj, immZExt5:$imm), (ROTRI_W GPR:$rj, (ImmSubFrom32 immZExt5:$imm))>;
 
 def : Pat<(not GPR:$in),(NOR GPR:$in, ZERO)>;
+
+// hi/lo relocs
+def : Pat<(LoongArchHi tglobaladdr:$in), (LU12I_W tglobaladdr:$in)>;
+def : Pat<(LoongArchLo tglobaladdr:$in), (ORI ZERO, tglobaladdr:$in)>;
+def : Pat<(add GPR:$hi, (LoongArchLo tglobaladdr:$lo)),
+(ORI GPR:$hi, tglobaladdr:$lo)>;
+
+// gp_rel relocs
+def : Pat<(add GPR:$gp, (LoongArchGPRel tglobaladdr:$in)),
+(ORI GPR:$gp, tglobaladdr:$in)>;
+
+// wrapper_pic
+class WrapperPat<SDNode node, Instruction ORIOp, RegisterClass RC>
+        : Pat<(LoongArchWrapper RC:$gp, node:$in), (ORIOp RC:$gp, node:$in)>;
+def : WrapperPat<tglobaladdr, ORI, GPROut>;
 
 // setcc for slt instruction
 multiclass SeteqPatsSlt<RegisterClass RC, Instruction SLTUIOp, Instruction XOROp,
