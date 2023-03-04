@@ -7,6 +7,7 @@
 
 #include "LoongArchISelLowering.h"
 
+#include "MCTargetDesc/LoongArchBaseInfo.h"
 #include "LoongArchMachineFunctionInfo.h"
 #include "LoongArchTargetMachine.h"
 #include "LoongArchTargetObjectFile.h"
@@ -284,12 +285,14 @@ SDValue LoongArchTargetLowering::LowerGlobalAddress(SDValue Op, SelectionDAG &DA
     if (GV->hasInternalLinkage() || (GV->hasLocalLinkage() && !isa<Function>(GV)))
         return getAddrLocal(N, Ty, DAG);
 
-    // large section
-    if (!TLOF->IsGlobalInSmallSection(GO, getTargetMachine()))
-        return getAddrGlobalLargeGOT(N, Ty, DAG, LoongArch::MO_GOT_HI20,
-                                     LoongArch::MO_GOT_LO12, DAG.getEntryNode(),
-                                     MachinePointerInfo::getGOT(DAG.getMachineFunction()));
-    return getAddrGlobal(N, Ty, DAG, LoongArch::MO_GOT, DAG.getEntryNode(),
-                         MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    //@large section
+    if (GO && !TLOF->IsGlobalInSmallSection(GO, getTargetMachine()))
+        return getAddrGlobalLargeGOT(
+                N, Ty, DAG, LoongArch::MO_GOT_HI20, LoongArch::MO_GOT_LO12,
+                DAG.getEntryNode(),
+                MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    return getAddrGlobal(
+            N, Ty, DAG, LoongArch::MO_GOT, DAG.getEntryNode(),
+            MachinePointerInfo::getGOT(DAG.getMachineFunction()));
 
 }

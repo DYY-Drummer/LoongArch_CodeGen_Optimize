@@ -22,6 +22,14 @@ namespace llvm {
     public:
         void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
 
+        // IsGlobalInSmallSection - Return true if this global address should be
+        // placed into small data/bss section.
+        bool IsGlobalInSmallSection(const GlobalObject *GV,
+                                    const TargetMachine &TM) const;
+
+        MCSection *SelectSectionForGlobal(const GlobalObject *GO, SectionKind Kind,
+                                          const TargetMachine &TM) const override;
+
     };
 } // end namespace llvm
 

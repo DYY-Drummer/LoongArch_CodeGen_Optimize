@@ -1654,7 +1654,7 @@ Contents of section .text:
 
 + **LoongArchTargetObjectFile（.h/.cpp）**
 
-​		添加判断全局变量是否使用.sbss/.sdata段的函数。如果一个地址的大小小于.sbss/.sdata段的容量阈值，则默认其使用.sbss/.sdata段。只有变量能使用.sbss/.sdata段，全局函数名不可以。如果是有初始值的变量或只读数据，则放入.sdata段，如果是未初始化的变量则放入.sbss段。
+​		添加判断全局变量是否使用.sbss/.sdata段的函数。如果一个地址的大小小于.sbss/.sdata段的容量阈值，则默认其使用.sbss/.sdata段。只有全局变量能使用.sbss/.sdata段，全局函数名不可以。如果是有初始值的变量或只读数据，则放入.sdata段，如果是未初始化的变量则放入.sbss段。
 
 +  **LoongArchRegisterInfo.cpp**
 
@@ -1662,7 +1662,7 @@ Contents of section .text:
 
 + **LoongArchISelLowering（.h/.cpp）**
 
-​		通过`setOperationAction(ISD::GlobalAddress, MVT::i32, Custom)`来将全局变量地址计算指定为自定义模式，在IR DAG的合法化阶段遇到`ISD::GlobalAddress`节点时，调用LowerOperation()方法，选择下降为静态重定位模式还是位置无关代码重定位模式，.sbss/.sdata模式还是.bss/.data模式的DAG节点
+​		通过`setOperationAction(ISD::GlobalAddress, MVT::i32, Custom)`来将全局变量地址计算指定为自定义模式，在IR DAG的合法化阶段遇到`ISD::GlobalAddress`节点时，进入自定义节点下降方法LowerOperation()。LowerOperation()又会进一步选择调用`ISD::GlobalAddress`节点的全局变量地址处理函数LowerGlobalAddress()，选择下降为静态重定位模式还是PIC重定位模式，.sbss/.sdata模式还是.bss/.data模式的DAG节点。
 
 ​		通过自定义的ISD节点`LoongArchISD::Hi/Lo`组合成新的地址ISD节点，来加载不同数据段的全局变量地址，对于.sbss/.sdata段的全局变量地址立即数，可以直接加到GP上：`(load (warpper $gp, %got(sym)))`，对于.bss/.data段的全局变量地址立即数，需要分为低12位和高20位分别计算，然后再加到GP上：`(load (wrapper (add %hi(sym), $gp), %lo(sym)))`。
 
@@ -1670,7 +1670,7 @@ Contents of section .text:
 
 ​		提供获取全局变量表基址寄存器GP的接口。
 
-​		在DAGToDAG选择函数中将全局偏移表节点替换全局偏移表的基地址寄存器GP的节点，在PIC模式下，全局偏移表地址的计算方式同先前的栈地址计算方式相同，均为`$BaseReg + Offset`。
+​		在DAGToDAG选择函数中将全局偏移表节点替换全局偏移表的基地址寄存器GP的节点。
 
 + **LoongArchInstrInfo.td**
 
@@ -1682,9 +1682,7 @@ Contents of section .text:
 
 ​		.data段和.sdata段用于存放有初始值的全局变量（例如 `int global = 1;`），.bss和.sbss段用于存放没有初始值的全局变量（例如 `int global;`）。
 
-
-
-### 5.2.1 data段和bss段
+### 5.2.1 data/bss
 
 ​		在32位架构中，.data段和.bss段是32位可寻址的。该模式下生成的汇编代码如下：
 
@@ -1700,7 +1698,7 @@ TODO
 
 
 
-### 5.2.2 sdata段和sbss段
+### 5.2.2 sdata/sbss
 
 ​		.sdata段和.sbss段是12位可寻址的，用于快速索引。该模式下生成的汇编代码如下：
 
@@ -1726,11 +1724,11 @@ TODO
 
 ## 5.3 PIC重定位模式
 
-
-
-### 5.3.2 sdata段和sbss段
-
 ​		由于在PIC重定位模式下，GP寄存器的值在运行阶段会改变，所以在函数调用开始时应该将GP指向函数调用的sdata段的入口，当新的sdata段入口地址计算完毕后，调用者会将GP的值保存在栈中，以便子函数调用结束后恢复，所以GP（T8）寄存器实际上是调用者保存寄存器。本节实现控制GP值计算操作的伪指令CPLoad。
+
+
+
+### 5.3.1 sdata/sbss
 
 + **LoongArchMachineFunctionInfo(.h/.cpp)**
 
@@ -1761,3 +1759,45 @@ add.w   	$gp, $gp, $t7
 + **LoongArchMCInstLower(.h/.cpp)**
 
 ​		将.cpload伪指令下降到机器指令，组装并在指令序列中插入如上所述的三条指令。
+
++ **LoongArchISelLowering.cpp**
+
+​		在LowerGlobalAddress()中添加PIC模式+.sdata/.sbss模式下的地址计算方式：`(add $GP, %GPRel)`。
+
++ **LoongArchISelDAGToDAG.cpp**
+
+​		在复杂地址选择方法SelectAddr中添加PIC模式的基地址操作数和偏移值操作数。在PIC模式下，全局偏移表地址的计算方式同先前的栈地址计算方式相同，均为`$BaseReg + Offset`。
+
+### 5.3.2 data/bss
+
++ **LoongArchISelLowering（.h/.cpp）**
+
+​		实现data/bss段的地址计算节点转换方法 getAddrGlobalLargeGOT()， 组装DAG：`(load (wrapper (add %hi(sym), $gp), %lo(sym)))`。
+
+
+
+## 5.4 全局变量汇编输出
+
+​		5.1-5.3节实现了全局变量的DAG选择匹配，接下来将实现全局变量相关的汇编代码输出规则的支持。
+
++ **LoongArchMCInstLower.cpp**
+
+​		实现全局变量地址操作数下降方法LowerSymbolOperand()。5.2和5.3节中，在DAG合法化选择阶段将代表全局变量地址的操作数更换为了自定义的符号操作数，例如`LoongArch::MO_GOT_HI20`。这里需要将这些自定义符号操作数进一步下降为汇编表达式字符串，例如`%gp_rel`，符号操作数枚举变量与汇编文本的对应关系定义在MCTargetDesc/LoongArchMCExpr.cpp中。
+
+
+
+## 5.5 总结
+
+​		本章的代码逻辑关系图如下所示：
+
+
+
+![5-5 总结图](5-5 总结图.PNG)
+
+​		首先，用户输入的重定位选项由LoongArchSubTarget类接收处理，设置相应的flag。在LLVM后端传入的原始IR DAG中遇到`GlobalAddress`节点时，会触发LoongArchISelLowering类中的操作自定义声明：`setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);`，而后调用自定义操作下降方法LowerOperation()，进一步选择LowerGlobalAddress()。LowerGlobalAdress()通过LoongArchTargetObjectFile类提供的small section判断接口，选择使用.sdata/.sbss模式还是.data/.bss模式，将IR DAG转化为自定义的合法化DAG（例如`LoongArchISD::Hi`）。LLVM 后端根据LoongArchInstrInfo.td中定义的匹配规则（例如`def : Pat<(LoongArchHi tglobaladdr:$in), (LU12I_W tglobaladdr:$in)>;`）将合法化DAG转换为MCInst DAG（如`LU12I_W addr:$in`）。其中，全局变量地址操作数的分析需要依靠LoongArchISelDAGToDAG类中的复杂地址选择方法SelectAddr()将GP相对寻址模式的地址选择为`$GP + Offset`，将绝对寻址模式的地址选择为`(add Hi20 + Lo12)`。最后，LoongArchMCInstLower类将匹配后的操作符和解析后的地址操作数下降为MCCode，也就是汇编代码（如`lu12i.w $gp, %hi(_gp_disp)`）。
+
+​		读者可能会有疑问，既然.sdata/.sbss模式要比.data/.bss模式的访问效率高，为什么我们不将全部的全局变量都放在.sdata/.sbss段呢？换句话说，我们如何知道程序中的全局变量不会超出.sdata/.sbss段的容量，并且最大限度地利用.sdata/.sbss段？
+
+​		当然，.sdata/.sbss段数据溢出的现象十分常见，回想5.2-5.3节，全局变量在全局偏移表内的地址是在链接阶段计算的，如果出现偏移值大于.sdata/.sbss段大小，即大于16位立即数时，LLVM链接器将会报错，终端会提示用户选择.data/.bss模式。显然，对于程序中的所有全局变量总共需要多少内存来存放，开发人员是很难在设计阶段就预料到的，为了充分利用.sdata/.sbss段的性能，一种好的编程思想是，将体量小而又使用频繁的文件的全局变量放到.sdata/.sbss段。
+
+​		例如，在使用llc命令将C程序文件编译成目标文件时，使用`-loongarch-use-small-section=false`选项编译调用次数少的总控制器文件A.c，而使用`-loongarch-use-small-section=true`编译调用次数多的底层接口文件B.c，最后再将A.o和B.o文件链接成可执行文件。

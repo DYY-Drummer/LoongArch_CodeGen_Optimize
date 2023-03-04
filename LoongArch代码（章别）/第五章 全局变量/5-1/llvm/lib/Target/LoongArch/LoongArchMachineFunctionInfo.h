@@ -18,8 +18,8 @@ namespace llvm {
     class LoongArchMachineFunctionInfo : public MachineFunctionInfo {
     public:
         LoongArchMachineFunctionInfo(MachineFunction &MF)
-                : MF(MF),  SRetReturnReg(0), CallsEhReturn(false), CallsEhDwarf(false),
-                  VarArgsFrameIndex(0), MaxCallFrameSize(0), EmitNOAT(false), GlobalBaseReg(0) { }
+                : MF(MF), VarArgsFrameIndex(0), SRetReturnReg(0), CallsEhReturn(false), CallsEhDwarf(false),
+                   MaxCallFrameSize(0), EmitNOAT(false), GlobalBaseReg(0) { }
 
         ~LoongArchMachineFunctionInfo();
 

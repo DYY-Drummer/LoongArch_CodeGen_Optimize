@@ -6,7 +6,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "LoongArchMachineFunctionInfo.h"
-
+#include "MCTargetDesc/LoongArchBaseInfo.h"
 #include "LoongArchInstrInfo.h"
 #include "LoongArchSubtarget.h"
 #include "llvm/IR/Function.h"
@@ -19,13 +19,13 @@ bool FixGlobalBaseReg;
 
 LoongArchMachineFunctionInfo::~LoongArchMachineFunctionInfo() { }
 
-bool LoongArchFunctionInfo::globalBaseRegFixed() const {
+bool LoongArchMachineFunctionInfo::globalBaseRegFixed() const {
     return FixGlobalBaseReg;
 }
-bool LoongArchFunctionInfo::globalBaseRegSet() const {
+bool LoongArchMachineFunctionInfo::globalBaseRegSet() const {
     return GlobalBaseReg;
 }
-unsigned LoongArchFunctionInfo::getGlobalBaseReg() {
+unsigned LoongArchMachineFunctionInfo::getGlobalBaseReg() {
     return GlobalBaseReg = LoongArch::GP;
 }
 

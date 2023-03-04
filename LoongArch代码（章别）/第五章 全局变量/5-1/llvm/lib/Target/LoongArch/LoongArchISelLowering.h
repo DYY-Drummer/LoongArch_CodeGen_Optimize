@@ -11,6 +11,7 @@
 #define LLVM_LIB_TARGET_LOONGARCH_LOONGARCHISELLOWERING_H
 
 #include "MCTargetDesc/LoongArchABIInfo.h"
+#include "MCTargetDesc/LoongArchBaseInfo.h"
 #include "LoongArch.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/SelectionDAG.h"
@@ -73,6 +74,9 @@ namespace llvm {
 
         static const LoongArchTargetLowering *create(const LoongArchTargetMachine &TM,
                                                 const LoongArchSubtarget &STI);
+
+        // LowerOperation - Provide custom lowering hooks for some operations.
+        SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
         // This method returns the name of a target specific DAG node.
         const char *getTargetNodeName(unsigned Opcode) const override;
@@ -209,6 +213,14 @@ namespace llvm {
 
 
         private:
+        // Create a TargetGlobalAddress node.
+        SDValue getTargetNode(GlobalAddressSDNode *N, EVT Ty, SelectionDAG &DAG,
+                              unsigned Flag) const;
+
+        // Create a TargetExternalSymbol node.
+        SDValue getTargetNode(ExternalSymbolSDNode *N, EVT Ty, SelectionDAG &DAG,
+                              unsigned Flag) const;
+
         // Lower Operand specifics
         SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
 

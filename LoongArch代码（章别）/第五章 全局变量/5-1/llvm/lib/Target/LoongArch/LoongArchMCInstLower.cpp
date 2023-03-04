@@ -27,6 +27,61 @@ void LoongArchMCInstLower::Initialize(MCContext *C) {
     Ctx = C;
 }
 
+MCOperand LoongArchMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
+                                              MachineOperandType MOTy,
+                                              unsigned Offset) const {
+    MCSymbolRefExpr::VariantKind Kind = MCSymbolRefExpr::VK_None;
+    LoongArchMCExpr::LoongArchExprKind TargetKind = LoongArchMCExpr::LEK_None;
+    const MCSymbol *Symbol;
+
+    switch(MO.getTargetFlags()) {
+        default:
+            llvm_unreachable("Invalid target flag!");
+        case LoongArch::MO_NO_FLAG:
+            break;
+        case LoongArch::MO_GPREL:
+            TargetKind = LoongArchMCExpr::LEK_GPREL;
+            break;
+        case LoongArch::MO_GOT:
+            TargetKind = LoongArchMCExpr::LEK_GOT;
+            break;
+        case LoongArch::MO_ABS_HI:
+            TargetKind = LoongArchMCExpr::LEK_ABS_HI;
+            break;
+        case LoongArch::MO_ABS_LO:
+            TargetKind = LoongArchMCExpr::LEK_ABS_LO;
+            break;
+        case LoongArch::MO_GOT_HI20:
+            TargetKind = LoongArchMCExpr::LEK_GOT_HI20;
+            break;
+        case LoongArch::MO_GOT_LO12:
+            TargetKind = LoongArchMCExpr::LEK_GOT_LO12;
+            break;
+    }
+
+    switch (MOTy) {
+        case MachineOperand::MO_GlobalAddress:
+            Symbol = AsmPrinter.getSymbol(MO.getGlobal());
+            Offset += MO.getOffset();
+            break;
+        default:
+            llvm_unreachable("unknown operand type");
+    }
+
+    const MCExpr *Expr = MCSymbolRefExpr::create(Symbol, Kind, *Ctx);
+
+    if (Offset) {
+        // Assume offset is never negative.
+        assert(Offset > 0);
+        Expr = MCBinaryExpr::createAdd(Expr, MCConstantExpr::create(Offset, *Ctx), *Ctx);
+    }
+
+    if (TargetKind != LoongArchMCExpr::LEK_None)
+        Expr = LoongArchMCExpr::create(TargetKind, Expr, *Ctx);
+
+    return MCOperand::createExpr(Expr);
+}
+
 static void CreateMCInst(MCInst &Inst, unsigned Opc, const MCOperand &Operand0,
                          const MCOperand &Operand1,
                          const MCOperand &Operand2 = MCOperand() ) {
@@ -72,6 +127,8 @@ MCOperand LoongArchMCInstLower::LowerOperand(const MachineOperand &MO,
             return MCOperand::createReg(MO.getReg());
         case MachineOperand::MO_Immediate:
             return MCOperand::createImm(MO.getImm() + offset);
+        case MachineOperand::MO_GlobalAddress:
+            return LowerSymbolOperand(MO, MOTy, offset);
         case MachineOperand::MO_RegisterMask:
             break;
     }
