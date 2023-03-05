@@ -1324,7 +1324,7 @@ int main()
 
 ​		使用Graphviz 工具可以查看各阶段的图形化的LLVM DAG图信息，比2.4节中使用`-print-after-all`打印出来的文本信息可读性要强得多。使用方法：
 
-```txt
+```assembly
 安装： sudo apt install graphviz
 生成.dot文件：./llc -view-sched-dags -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.loongarch.s
 生成成功信息：Writing '/tmp/dag.main-b09641.dot'...  done. 
@@ -1337,8 +1337,6 @@ int main()
 将.dot文件转换为png图片：dot /tmp/dag.main-b09641.dot -Tpng -o test.png
 
 ```
-
-
 
 
 
@@ -1417,7 +1415,7 @@ int test_setxx()
 
 
 
-### GDB 调试 LLVM后端
+### 3.3 使用GDB 调试 LLVM后端
 
 gdb ./llc
 
@@ -1568,6 +1566,10 @@ MCCodeEmitter *llvm::createLoongArchMCCodeEmitter(
 
 ​		定义了LoongArch用ELF文件输出流，继承自LLVM MCELFStreamer，用于将准备好的编码写入到LLVM内存缓冲区。
 
+---
+
+
+
 + **编译测试**
 
 ​		使用3.1节的输入程序来测试Obj目标代码生成功能。
@@ -1616,14 +1618,16 @@ Contents of section .text:
 
 ​		LoongArch的重定位模式分为静态模式（static，或称绝对寻址模式）和位置无关代码（PIC）模式两种，可通过`-relocation-mode`选项指定；数据存储方式分为.data/.bss模式和.sdata/.sbss模式两种（如2.1节中介绍的），可通过`-loongarch-use-small-section`选项指定，前者以32位寻址，计算地址所需指令数多，可寻址空间大，后者以12位寻址，指令效率高，可寻址空间小。通过以上两个选项的组合可生成2×2=4种格式的目标文件。
 
-​		在静态重定位模式下，若使用.sdata/.sbss模式，则全局变量表内地址可以通过表基地址（GP）直接加上表内偏移值（不大于12-bit）计算；若使用.data/.bss模式，则需要将地址分为高20位和低12位转换为绝对地址，如下表所示（其中gI为全局变量表内地址值，`LoongArchISD:XX`为自定义DAG节点，后面会讲解） ：
+​		在静态重定位模式下，若使用.sdata/.sbss模式，则全局变量表内地址可以通过表基地址（GP）直接加上表内偏移值（不大于12-bit）计算；若使用.data/.bss模式，则需要将地址分为高20位和低12位转换为绝对地址。
+
+​		假设gv为一全局变量，那么在不同模式下它对应的寻址模式、DAG、汇编代码如下表所示（在生成的汇编代码中gv的数据所在的段标签名也是"gv"，同时在汇编指令中也代表gv在全局变量表内地址值。`LoongArchISD:XXX`为自定义DAG节点，后面会讲解） ：
 
 | 数据存储方式      | .sdata/.sbss                                        | .data/.bss                                                   |
 | ----------------- | --------------------------------------------------- | ------------------------------------------------------------ |
 | 寻址模式          | 全局指针寄存器相对寻址                              | 绝对寻址                                                     |
 | 地址计算方式      | $GP + Offset                                        | 绝对地址值                                                   |
-| 合法化选择后的DAG | `(add register %GP,LoongArchISD::GPRel<gI offset>)` | `(add LoongArchISD::Hi<gI offset Hi20>LoongArchISD::Lo<gI offset Lo12>)` |
-| LoongArch汇编代码 | `ori $r4, $gp, %gp_rel(gI)`                         | `lu12i.w $r4, %hi(gI) `<br/>`ori $r4, $r4, %lo(gI)`          |
+| 合法化选择后的DAG | `(add register %GP,LoongArchISD::GPRel<gv offset>)` | `(add LoongArchISD::Hi<gv offset Hi20>LoongArchISD::Lo<gv offset Lo12>)` |
+| LoongArch汇编代码 | `ori $r4, $gp, %gp_rel(gv)`                         | `lu12i.w $r4, %hi(gv) `<br/>`ori $r4, $r4, %lo(gv)`          |
 | 重定位时机        | 链接时                                              | 链接时                                                       |
 
 ​		在PIC重定位模式下，全局变量表内地址均是相对全局指针寄存器计算的，如下表所示。
@@ -1631,10 +1635,12 @@ Contents of section .text:
 | 数据存储方式      | .sdata/.sbss                                                 | .data/.bss                                                 |
 | ----------------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
 | 寻址模式          | 全局指针寄存器相对寻址                                       | 全局指针寄存器相对寻址                                     |
-| 地址计算方式      | $GP + Offset                                                 | $GP + Offset                                               |
-| 合法化选择后的DAG | `(load EntryToken, (LoongArchISD::Wrapper (add LoongArchISD::Hi<gI offset Hi20>, Register %GP), LoongArchISD::Lo<gI offset Lo12>))` | `(load (LoongArchISD::Wrapper register %GP, <gI offset>))` |
-| LoongArch汇编代码 | `lu12i.w $r4, %got_hi(gI)`<br>``add $r4, $r4, $gp`<br/>`ld.w $r4, %got_lo(gI)($r4)` | `ld.w $r4, %got(gI)($gp)`                                  |
+| 地址计算方式      | $GP + Offset                                                 | $GP + Offset |                                                            |
+| 合法化选择后的DAG | `(load EntryToken, (LoongArchISD::Wrapper (add LoongArchISD::Hi<gv offset Hi20>, Register %GP), LoongArchISD::Lo<gv offset Lo12>))` | `(load (LoongArchISD::Wrapper register %GP, <gv offset>))` |
+| LoongArch汇编代码 | `lu12i.w $r4, %got_hi(gv)`<br>`add $r4, $r4, $gp`<br/>`ld.w $r4, %got_lo(gv)($r4)` | `ld.w $r4, %got(gv)($gp)`                                  |
 | 重定位时机        | 链接时                                                       | 链接时                                                     |
+
+​		实际上，在标准汇编中，原生的数据存储方式只有.data/.bss段，.sdata/.sbss段实际上是我们自定义的一个段，在后面输出的汇编代码中可以看到，使用.sdata/.sbss模式时，汇编器会将该数据段用“`.section .sdata`"伪指令来描述，相当于把该数据段当成了和main函数一样的代码段来处理。而使用.data/.bss模式时则是“`.data`”。
 
 ​		需要注意的是，动态链接（运行时加载）的变量必须使用位置无关寻址模式。在C语言中，所有的变量都是静态链接的，而C++中的可重载变量都是动态链接的。
 
@@ -1660,12 +1666,6 @@ Contents of section .text:
 
 ​		使用r20寄存器作为全局指针寄存器GP，用来保存全局偏移表的基地址，保留该寄存器。
 
-+ **LoongArchISelLowering（.h/.cpp）**
-
-​		通过`setOperationAction(ISD::GlobalAddress, MVT::i32, Custom)`来将全局变量地址计算指定为自定义模式，在IR DAG的合法化阶段遇到`ISD::GlobalAddress`节点时，进入自定义节点下降方法LowerOperation()。LowerOperation()又会进一步选择调用`ISD::GlobalAddress`节点的全局变量地址处理函数LowerGlobalAddress()，选择下降为静态重定位模式还是PIC重定位模式，.sbss/.sdata模式还是.bss/.data模式的DAG节点。
-
-​		通过自定义的ISD节点`LoongArchISD::Hi/Lo`组合成新的地址ISD节点，来加载不同数据段的全局变量地址，对于.sbss/.sdata段的全局变量地址立即数，可以直接加到GP上：`(load (warpper $gp, %got(sym)))`，对于.bss/.data段的全局变量地址立即数，需要分为低12位和高20位分别计算，然后再加到GP上：`(load (wrapper (add %hi(sym), $gp), %lo(sym)))`。
-
 + **LoongArchISelDAGToDAG（.h/.cpp）**
 
 ​		提供获取全局变量表基址寄存器GP的接口。
@@ -1682,35 +1682,56 @@ Contents of section .text:
 
 ​		.data段和.sdata段用于存放有初始值的全局变量（例如 `int global = 1;`），.bss和.sbss段用于存放没有初始值的全局变量（例如 `int global;`）。
 
+
+
 ### 5.2.1 data/bss
 
-​		在32位架构中，.data段和.bss段是32位可寻址的。该模式下生成的汇编代码如下：
++ **LoongArchISelLowering（.h/.cpp）**
+
+​		通过`setOperationAction(ISD::GlobalAddress, MVT::i32, Custom)`来将全局变量地址计算指定为自定义模式，在IR DAG的合法化阶段遇到`ISD::GlobalAddress`节点时，进入自定义节点下降方法LowerOperation()。LowerOperation()又会进一步选择调用`ISD::GlobalAddress`节点的全局变量地址处理函数LowerGlobalAddress()，选择下降为静态重定位模式还是PIC重定位模式，.sbss/.sdata模式还是.bss/.data模式的DAG节点。
+
+​		通过自定义的ISD节点`LoongArchISD::Hi/Lo`组合成新的地址ISD节点，来加载不同数据段的全局变量地址，对于.sbss/.sdata段的全局变量地址立即数，可以直接加到GP上：`(load (warpper $gp, %got(sym)))`，对于.bss/.data段的全局变量地址立即数，需要分为低12位和高20位分别计算，然后再加到GP上：`(load (wrapper (add %hi(sym), $gp), %lo(sym)))`。
+
+---
+
+
+
+​		在32位架构中，.data段和.bss段是32位可寻址的。该模式下生成的汇编代码节选如下：
 
 ```assembly
-TODO
+main:
+...
+	lu12i.w	$r4, %hi(globalVB)
+	ori	$r4, $r4, %lo(globalVB)
+	ld.w	$r4, $r4, 0
+...
+	.type	globalVA,@object        # @globalVA
+	.data
+	.globl	globalVA
+	.p2align	2
+globalVA:
+	.word	3                       # 0x3
+	.size	globalVA, 4
+...
+	.type	globalVB,@object        # @globalVB
+	.globl	globalVB
+	.p2align	2
+globalVB:
+	.word	100                     # 0x64
+	.size	globalVB, 4
 ```
 
-​		在以上汇编代码中，它首先将gI的高20位地址链接上12位0，符号扩展后放入寄存器r4(A0)中，这样，它就得到了gI的绝对地址的高位部分。然后，它将寄存器r4中的数据与gI的零扩展后的低12位地址进行按位逻辑或运算，得到了gI的完整内存地址。最后，使用ld.w指令读取改地址中的全局变量数据。
+​		可以看到，globalVA和globalVB都属于.data段。
 
-​		在静态链接模式下必须使用静态重定位模式，在动态链接模式下必须使用位置无关寻址模式。在静态链接模式下，相对程序计数器（PC）的地址（指令`lu12i.w $r4, %hi(gi)`和gI之间的相对地址）可以被解析，由于LoongArch采用PC相对地址编码模式，该汇编程序可以在任意的地址块下正确执行，因为它不依赖自身的绝对地址。
+​		在以上汇编代码中，globalVA和globalVB均为全局变量（以下简称gv）。在引用gv时，它首先将gv的高20位地址链接上12位0，符号扩展后放入寄存器r4(A0)中，这样，它就得到了gv的绝对地址的高位部分。然后，它将寄存器r4中的数据与gv的零扩展后的低12位地址进行按位逻辑或运算，得到了gv的完整内存地址。最后，使用ld.w指令读取改地址中的全局变量数据。
 
-​		如果该程序使用绝对地址，并且存放在加载时已知的特定地址下，那么形如`lu12i.w $r4, %hi(gi)`等调用gI数据块的指令的重定位记录就可在操作系统将可执行文件加载到内存时进行解析。如果该程序使用绝对地址，并且存放在链接时已知的特定地址下，那么其重定位记录就可在链接阶段进行解析。
+​		在静态链接模式下必须使用静态重定位模式，在动态链接模式下必须使用位置无关寻址模式。在静态链接模式下，相对程序计数器（PC）的地址（指令`lu12i.w $r4, %hi(gv)`和gv之间的相对地址）可以被解析，由于LoongArch采用PC相对地址编码模式，该汇编程序可以在任意的地址块下正确执行，因为它不依赖自身的绝对地址。
+
+​		如果该程序使用绝对地址，并且存放在加载时已知的特定地址下，那么形如`lu12i.w $r4, %hi(gv)`等调用gv数据块的指令的重定位记录就可在操作系统将可执行文件加载到内存时进行解析。如果该程序使用绝对地址，并且存放在链接时已知的特定地址下，那么其重定位记录就可在链接阶段进行解析。
 
 
 
 ### 5.2.2 sdata/sbss
-
-​		.sdata段和.sbss段是12位可寻址的，用于快速索引。该模式下生成的汇编代码如下：
-
-```assembly
-TODO
-```
-
-​		在静态重定位模式下，GP寄存器的值会在编译/链接阶段加载，在整个运行阶段保持固定（固定位全局偏移表的入口）。具体地讲就是，当test.s被加载时，GP会被赋予.sdata段的入口地址的值，之后链接器就能够计算gI块到.sdata段的相对地址（即`%gp_rel(gI)`)，所以该重定位记录可以在链接时解析，即“静态”重定位。
-
-​		相反，在PIC重定位模式下，GP寄存器的值在运行阶段也可能改变。
-
-​		由于静态重定位模式中GP需要固定在全局偏移表的入口位置，所以需要禁止LLVM将GP用作通用输出寄存器：
 
 + **LoongArchSubtarget.cpp**
 
@@ -1720,13 +1741,39 @@ TODO
 
 ​		根据FixGlobalBaseReg判断是否将GP寄存器加入保留寄存器列表。
 
+---
+
+
+
+​		.sdata段和.sbss段是12位可寻址的，用于快速索引。该模式下生成的汇编代码如下：
+
+```assembly
+main:
+...
+	ori	$r4, $r20, %gp_rel(globalVB)
+	ld.w	$r4, $r4, 0
+...
+	.type	globalVA,@object        # @globalVA
+	.section	.sdata,"aw",@progbits
+	.globl	globalVA
+	.p2align	2
+globalVA:
+...
+```
+
+​		可以看到，globalVA和globalVB都属于自定义的”.section .sdata“段。
+
+​		在静态重定位模式下，GP寄存器的值会在编译/链接阶段加载，在整个运行阶段保持固定（固定位全局偏移表的入口）。具体地讲就是，当test.s被加载时，GP会被赋予.sdata段的入口地址的值，之后链接器就能够计算gv块到.sdata段入口的相对偏移（即`%gp_rel(gv)`)，该重定位记录可以在链接时解析。在如上汇编代码中，就是通过ori指令将GP（.sdata段入口地址）与全局变量在段内的偏移相加，得到gv的绝对地址，再使用ld.w读取gv的值。由于以上重定位地址都是在链接阶段就计算好的，到了运行时已经固定了，所以是“静态”重定位。
+
+​		由于静态重定位模式中GP在整个运行时都需要固定在全局偏移表的入口位置，所以需要禁止LLVM将GP用作通用输出寄存器。相反，在PIC重定位模式下，GP寄存器的值在运行阶段也可能改变。
+
 
 
 ## 5.3 PIC重定位模式
 
 ​		由于在PIC重定位模式下，GP寄存器的值在运行阶段会改变，所以在函数调用开始时应该将GP指向函数调用的sdata段的入口，当新的sdata段入口地址计算完毕后，调用者会将GP的值保存在栈中，以便子函数调用结束后恢复，所以GP（T8）寄存器实际上是调用者保存寄存器。本节实现控制GP值计算操作的伪指令CPLoad。
 
-
+​		在PIC模式下，全局偏移表地址的计算方式同先前的栈地址计算方式相同，均为`$BaseReg + Offset`。
 
 ### 5.3.1 sdata/sbss
 
@@ -1766,13 +1813,55 @@ add.w   	$gp, $gp, $t7
 
 + **LoongArchISelDAGToDAG.cpp**
 
-​		在复杂地址选择方法SelectAddr中添加PIC模式的基地址操作数和偏移值操作数。在PIC模式下，全局偏移表地址的计算方式同先前的栈地址计算方式相同，均为`$BaseReg + Offset`。
+​		在复杂地址选择方法SelectAddr中添加PIC模式的基地址操作数和偏移值操作数。
+
+---
+
+
+
+​		该模式下输出代码节选如下所示：
+
+```assembly
+main:
+...
+	ld.w	$r4, $r20, %got(globalVB)
+	ld.w	$r4, $r4, 0
+...
+	.type	globalVA,@object        # @globalVA
+	.section	.sdata,"aw",@progbits
+...
+```
+
+​		在如上汇编代码中，全局变量保存在.sdata段，GP保存的是.sdata段的入口地址，在.sdata/.sbss模式下，全局变量表内偏移为12位，所以可直接使用一条ld.w指令访问全局变量。
+
+
 
 ### 5.3.2 data/bss
 
 + **LoongArchISelLowering（.h/.cpp）**
 
 ​		实现data/bss段的地址计算节点转换方法 getAddrGlobalLargeGOT()， 组装DAG：`(load (wrapper (add %hi(sym), $gp), %lo(sym)))`。
+
+---
+
+
+
+​		该模式下输出代码节选如下所示：
+
+```assembly
+main:
+...
+	lu12i.w	$r4, %got_hi(globalVB)
+	add.w	$r4, $r4, $r20
+	ld.w	$r4, $r4, %got_lo(globalVB)
+	ld.w	$r4, $r4, 0
+...
+	.type	globalVA,@object        # @globalVA
+	.data
+...
+```
+
+​		在如上汇编代码中，全局变量保存在.data段，GP保存的是.data段的入口地址，在.data/.bss模式下，全局变量表内偏移为32位，所以分为高20位和低12位分别加到GP上，计算全局变量的绝对地址。
 
 
 
@@ -1801,3 +1890,23 @@ add.w   	$gp, $gp, $t7
 ​		当然，.sdata/.sbss段数据溢出的现象十分常见，回想5.2-5.3节，全局变量在全局偏移表内的地址是在链接阶段计算的，如果出现偏移值大于.sdata/.sbss段大小，即大于16位立即数时，LLVM链接器将会报错，终端会提示用户选择.data/.bss模式。显然，对于程序中的所有全局变量总共需要多少内存来存放，开发人员是很难在设计阶段就预料到的，为了充分利用.sdata/.sbss段的性能，一种好的编程思想是，将体量小而又使用频繁的文件的全局变量放到.sdata/.sbss段。
 
 ​		例如，在使用llc命令将C程序文件编译成目标文件时，使用`-loongarch-use-small-section=false`选项编译调用次数少的总控制器文件A.c，而使用`-loongarch-use-small-section=true`编译调用次数多的底层接口文件B.c，最后再将A.o和B.o文件链接成可执行文件。
+
+
+
++ **编译测试**
+
+​		使用如下代码进行测试：
+
+```c
+int globalVA = 3;
+int globalVB = 100;
+int main(){
+    int localVC = 0;
+    localVC = globalVB;
+    return localVC;
+}
+```
+
+​		编译指令：`llc -march=loongarch -mcpu=loongarch32 -relocation-model=static/pic -loongarch-use-small-section=false/true -filetype=asm test.ll -o test.s`
+
+​		输出结果请参考5.2-5.3节示例。
