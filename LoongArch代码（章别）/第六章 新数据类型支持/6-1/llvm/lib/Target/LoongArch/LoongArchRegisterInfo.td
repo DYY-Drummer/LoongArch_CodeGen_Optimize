@@ -4,7 +4,7 @@
 //  Declarations that describe the LOONGARCH register file
 //===----------------------------------------------------------------------===//
 
-// We have banks of 32 registers each.
+// We have banks of 32 integer registers each.
 class LoongArchReg<bits<16> Enc, string n, list<string> alt = []> : Register<n> {
   // For tablegen(... -gen-emitter)  in CMakeLists.txt
   let HWEncoding = Enc;
@@ -12,14 +12,26 @@ class LoongArchReg<bits<16> Enc, string n, list<string> alt = []> : Register<n> 
   let Namespace = "LoongArch";
 }
 
-// LoongArch CPU Registers
+// We have banks of 32 float point registers each.
+class LoongArchFPReg<bits<16> Enc, string n, list<string> alt = []> : Register<n> {
+// For tablegen(... -gen-emitter)  in CMakeLists.txt
+let HWEncoding = Enc;
+let AltNames = alt;
+let Namespace = "LoongArch";
+}
+
+
+// LoongArch Integer CPU Registers
 class LoongArchGPRReg<bits<16> Enc, string n, list<string> alt = []> : LoongArchReg<Enc, n>;
+
+// LoongArch Floating Point CPU Registers
+class LoongArchFPGPRReg<bits<16> Enc, string n, list<string> alt = []> : LoongArchFPReg<Enc, n>;
 
 // Co-processor Registers
 class LoongArchCoReg<bits<16> Enc, string n, list<string> alt = []> : LoongArchReg<Enc, n>;
 
 //===----------------------------------------------------------------------===//
-//@Registers
+//@Integer Registers
 //===----------------------------------------------------------------------===//
 // The register string, such as "9" or "gp" will show on "llvm-objdump -d"
 //@ All registers definition
@@ -47,7 +59,7 @@ let Namespace = "LoongArch" in {
   def T6   : LoongArchGPRReg<18, "r18", ["t6"]>,   DwarfRegNum<[18]>;
   def T7   : LoongArchGPRReg<19, "r19", ["t7"]>,   DwarfRegNum<[19]>;
   def GP   : LoongArchGPRReg<20, "r20", ["gp","t8"]>,   DwarfRegNum<[20]>;
-  def R21   : LoongArchGPRReg<21, "r21", [""]>,   DwarfRegNum<[21]>;
+  def R21  : LoongArchGPRReg<21, "r21", [""]>,   DwarfRegNum<[21]>;
   def FP   : LoongArchGPRReg<22, "r22", ["fp","s9"]>,   DwarfRegNum<[22]>;
   def S0   : LoongArchGPRReg<23, "r23", ["s0"]>,   DwarfRegNum<[23]>;
   def S1   : LoongArchGPRReg<24, "r24", ["s1"]>,   DwarfRegNum<[24]>;
@@ -61,6 +73,47 @@ let Namespace = "LoongArch" in {
 
   //@Program Counter Register
   def PC   : LoongArchCoReg<0, "pc", [""]>,  DwarfRegNum<[40]>;
+
+}
+
+//===----------------------------------------------------------------------===//
+//@Float Point Registers
+//===----------------------------------------------------------------------===//
+//@ All registers definition
+let Namespace = "LoongArch" in {
+//@ General Purpose Registers
+def F0    : LoongArchFPGPRReg<0, "f0", ["fa0"]>,    DwarfRegNum<[32]>;
+def F1    : LoongArchFPGPRReg<1, "f1", ["fa1"]>,    DwarfRegNum<[33]>;
+def F2    : LoongArchFPGPRReg<2, "f2", ["fa2"]>,    DwarfRegNum<[34]>;
+def F3    : LoongArchFPGPRReg<3, "f3", ["fa3"]>,    DwarfRegNum<[35]>;
+def F4    : LoongArchFPGPRReg<4, "f4", ["fa4"]>,    DwarfRegNum<[36]>;
+def F5    : LoongArchFPGPRReg<5, "f5", ["fa5"]>,    DwarfRegNum<[37]>;
+def F6    : LoongArchFPGPRReg<6, "f6", ["fa6"]>,    DwarfRegNum<[38]>;
+def F7    : LoongArchFPGPRReg<7, "f7", ["fa7"]>,    DwarfRegNum<[39]>;
+def F8    : LoongArchFPGPRReg<8, "f8", ["ft0"]>,    DwarfRegNum<[40]>;
+def F9    : LoongArchFPGPRReg<9, "f9", ["ft1"]>,    DwarfRegNum<[41]>;
+def F10   : LoongArchFPGPRReg<10, "f10", ["ft2"]>,   DwarfRegNum<[42]>;
+def F11   : LoongArchFPGPRReg<11, "f11", ["ft3"]>,   DwarfRegNum<[43]>;
+def F12   : LoongArchFPGPRReg<12, "f12", ["ft4"]>,   DwarfRegNum<[44]>;
+def F13   : LoongArchFPGPRReg<13, "f13", ["ft5"]>,   DwarfRegNum<[45]>;
+def F14   : LoongArchFPGPRReg<14, "f14", ["ft6"]>,   DwarfRegNum<[46]>;
+def F15   : LoongArchFPGPRReg<15, "f15", ["ft7"]>,   DwarfRegNum<[47]>;
+def F16   : LoongArchFPGPRReg<16, "f16", ["ft8"]>,   DwarfRegNum<[48]>;
+def F17   : LoongArchFPGPRReg<17, "f17", ["ft9"]>,   DwarfRegNum<[49]>;
+def F18   : LoongArchFPGPRReg<18, "f18", ["ft10"]>,   DwarfRegNum<[50]>;
+def F19   : LoongArchFPGPRReg<19, "f19", ["ft11"]>,   DwarfRegNum<[51]>;
+def F20   : LoongArchFPGPRReg<20, "f20", ["ft12"]>,   DwarfRegNum<[52]>;
+def F21   : LoongArchFPGPRReg<21, "f21", ["ft13"]>,   DwarfRegNum<[53]>;
+def F22   : LoongArchFPGPRReg<22, "f22", ["ft14"]>,   DwarfRegNum<[54]>;
+def F23   : LoongArchFPGPRReg<23, "f23", ["ft15"]>,   DwarfRegNum<[55]>;
+def F24   : LoongArchFPGPRReg<24, "f24", ["fs0"]>,   DwarfRegNum<[56]>;
+def F25   : LoongArchFPGPRReg<25, "f25", ["fs1"]>,   DwarfRegNum<[57]>;
+def F26   : LoongArchFPGPRReg<26, "f26", ["fs2"]>,   DwarfRegNum<[58]>;
+def F27   : LoongArchFPGPRReg<27, "f27", ["fs3"]>,   DwarfRegNum<[59]>;
+def F28   : LoongArchFPGPRReg<28, "f28", ["fs4"]>,   DwarfRegNum<[60]>;
+def F29   : LoongArchFPGPRReg<29, "f29", ["fs5"]>,   DwarfRegNum<[61]>;
+def F30   : LoongArchFPGPRReg<30, "f30", ["fs6"]>,   DwarfRegNum<[62]>;
+def F31   : LoongArchFPGPRReg<31, "f31", ["fs7"]>,   DwarfRegNum<[63]>;
 
 }
 
@@ -82,6 +135,8 @@ def GPR : RegisterClass<"LoongArch", [i32], 32, (add
   R21
   )>;
 
+def FPGPR : RegisterClass<"LoongArch", [f32], 32, (sequence "F%u", 0, 31)>;
+
 //@Status Registers class
 //def CSR
 
@@ -96,4 +151,5 @@ def GPROut : RegisterClass<"LoongArch", [i32], 32, (add (sub GPR, R21))>;
 //     extern const TargetRegisterClass GPRRegClass;
 //     extern const TargetRegisterClass GPROutRegClass;
 //     extern const TargetRegisterClass CoRegsRegClass;
+//     extern const TargetRegisterClass FPGPRRegClass;
 // } // end namespace LoongArch

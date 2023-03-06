@@ -1971,7 +1971,7 @@ ld.w	$r4, $r4, 0      // 以pointer的值为目标地址读取值，即*pointer
 
 + **编译测试**
 
-​		使用如下代码片段测试指针数据类型：
+​		使用如下代码片段测试字符型、短整型和布尔型数据：
 
 ```c
 TODO
@@ -1991,4 +1991,47 @@ TODO
 
 + **LoongArchSEISelDAGToDAG.cpp**
 
+​		当执行64位数的乘法时，会生成SMUL_LOHI/UMUL_LOHI IR节点，该IR节点将两个i32的整数操作数相乘，得到一个符号扩展/零扩展的i64的结果，并将结果的高32位和低32位分别保存在两个i32的子节点中。龙芯指令集中没有类似的指令，所以我们需要利用mul.w和mulh.w(u)指令来代替，即在DAG合法化阶段将SMUL_LOHI/UMUL_LOHI IR节点替换为MUL_W和MULH_W(U)节点。
+
+​		为了执行节点替换，首先我们需要捕捉到SMUL_LOHI/UMUL_LOHI节点，由于在LoongArchInstrInfo.td中没有定义该节点的匹配规则，所以TableGen会将该节点归为无法自动生成的节点。到了DAGToDAG阶段，LLVM会调用LoongArchISelDAGToDAG中的Select()方法为每个IR节点选择合法的目标机器节点替换，由于SMUL_LOHI/UMUL_LOHI节点未能匹配，所以会被扔进子目标机器的DAG合法化方法trySelect()尝试进行处理。故，我们可在LoongArchSEISelDAGToDAG类的trySelect()方法中捕捉SMUL_LOHI/UMUL_LOHI节点，执行替换。
+
+​		替换分为三个步骤：1）将原IR节点的输入操作数复制，并嫁接到替补节点上。2、调用CurDAG->getMachineNode()方法创建两个新的机器节点Lo和Hi，opcode分别为MUL_W和MULH_W(U)，操作数均为1）中的操作数。3）用Lo、Hi节点在SMUL_LOHI/UMUL_LOHI节点的数据链上将其两个输出节点替换掉（这样任何使用原来的SMUL_LOHI/UMUL_LOHI节点的输出结果的地方都会转而使用Lo、Hi节点的输出结果），最后把SMUL_LOHI/UMUL_LOHI节点删掉。
+
+​		对于64位加减法，会生成使用进位的ADDE和SUBE节点，这两个节点包含三个操作数：左操作数、右操作数和输入进位标志。输出包含两个结果：加减法的结果和输出进位标志。进位标志用于指示后端将节点链接在一起从而实现任意大数值的加减法。我们需要做的同样是在trySelect()方法中捕获ADDE/SUBE节点，并用SLTU指令来为它们提供是否进位的判断标志。
+
+
+
++ **编译测试**
+
+​		使用如下代码片段测试长整型数据：
+
+```c
+long long main()
+{
+    long long a = 0x300000002;
+    long long b = 0x100000001;
+    long long c = a + b;  // c = 0x00000004,00000003
+    long long d = a * b;  // d = 0x00000005,00000002
+    long long e = ((-7 * 8) + 1) >> 4; // e = -55/16=-3.4375=-4
+    return c + d + e;     // 0x00000009,00000001
+}
+```
+
+​		输出汇编代码节选如下：
+
+```assembly
+TODO
+```
+
 ​		
+
+## 6.4 浮点数
+
+​		通常来讲，浮点数计算需要消耗的资源比整数计算要大得多，出于减轻硬件压力的目的，一些机器架构甚至干脆不提供浮点计算指令，当需要进行浮点操作时，后端会调用运行时库（如builtins）来处理，将浮点数转换为无符号整数处理。
+
+​		幸运的是，龙芯处理器有专门的浮点运算单元，浮点寄存器和浮点操作指令，所以我们不需要进行复杂的浮点数-整数操作转换。本节将添加LoongArch基本浮点运算指令实现。
+
++ **LoongArchRegister.td**
+
+​		形同整数寄存器定义，定义32个浮点寄存器F0-F31，浮点运算专用寄存器集合FPGPR。
+

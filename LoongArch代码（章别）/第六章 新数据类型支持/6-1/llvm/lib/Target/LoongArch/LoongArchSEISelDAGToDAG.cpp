@@ -59,8 +59,7 @@ void LoongArchSEDAGToDAGISel::selectAddESubE(unsigned MOp, SDValue InFlag,
     SDNode *AddCarry = CurDAG->getMachineNode(LoongArch::ADD_W, DL, VT,
                                               SDValue(Carry, 0), RHS);
 
-    SDValue Operands[3] = {LHS, RHS, SDValue(AddCarry, 0)};
-    CurDAG->SelectNodeTo(Node, MOp, VT, MVT::Glue, Operands);
+    CurDAG->SelectNodeTo(Node, MOp, VT, MVT::Glue, LHS, SDValue(AddCarry,0));
 }
 
 bool LoongArchSEDAGToDAGISel::trySelect(SDNode *Node) {
