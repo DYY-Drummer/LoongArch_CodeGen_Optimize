@@ -83,6 +83,7 @@ namespace llvm {
         // This method returns the name of a target specific DAG node.
         const char *getTargetNodeName(unsigned Opcode) const override;
 
+        bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
     protected:
         SDValue getGlobalReg(SelectionDAG &DAG, EVT Ty) const;
 

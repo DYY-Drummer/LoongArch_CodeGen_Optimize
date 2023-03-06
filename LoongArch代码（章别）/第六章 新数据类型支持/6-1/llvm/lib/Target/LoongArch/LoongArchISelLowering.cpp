@@ -66,7 +66,22 @@ LoongArchTargetLowering::LoongArchTargetLowering(const LoongArchTargetMachine &T
     // if alignment is not power of 2, llc command will fail.
     setMinFunctionAlignment(Align(8));
 
-   
+    // Handle i64 shl
+    setOperationAction(ISD::SHL_PARTS, MVT::i32, Expand);
+    setOperationAction(ISD::SRA_PARTS, MVT::i32, Expand);
+    setOperationAction(ISD::SRL_PARTS, MVT::i32, Expand);
+
+
+    // LoongArch does not have i1 type, so use i32 for setcc operations results.
+    setBooleanContents(ZeroOrOneBooleanContent);
+    setBooleanVectorContents(ZeroOrNegativeOneBooleanContent);
+
+    // Load extented operations for i1 types must be promoted
+    for (MVT VT : MVT::integer_valuetypes()) {
+        setLoadExtAction(ISD::EXTLOAD, VT, MVT::i1, Promote);
+        setLoadExtAction(ISD::ZEXTLOAD, VT, MVT::i1, Promote);
+        setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Promote);
+    }
 }
 
 
@@ -184,6 +199,12 @@ LoongArchTargetLowering::LoongArchCC::LoongArchCC(
 //===----------------------------------------------------------------------===//
 // Methods implement for CallingConv
 //===----------------------------------------------------------------------===//
+
+bool LoongArchTargetLowering::isOffsetFoldingLegal(
+        const GlobalAddressSDNode *GA) const {
+    // The LoongArch target isn't yet aware of offsets.
+    return false;
+}
 
 template<typename Ty>
 void LoongArchTargetLowering::LoongArchCC::

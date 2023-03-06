@@ -71,15 +71,23 @@ def uimm12 : Operand<i32> {
 let PrintMethod = "printUnsignedImm";
 }
 
+
+
 def shamt  : Operand<i32>;
 
 // Address operand
 def mem : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
-//操作符为ops的dag值，它用于指定多个子操作数，有子操作数的操作数称为复合操作数
-  let MIOperandInfo = (ops GPROut, simm12);
+  let MIOperandInfo = (ops GPR, simm12);
   let EncoderMethod = "getMemEncoding";
 }
+
+def mem_ea : Operand<iPTR> {
+let PrintMethod = "printMemOperandEA";
+let MIOperandInfo = (ops GPR, simm12);
+let EncoderMethod = "getMemEncoding";
+}
+
 // Return an immediate subtracted from 32.
 def ImmSubFrom32 : SDNodeXForm<imm, [{
 return CurDAG->getTargetConstant(32 - N->getZExtValue(), SDLoc(N),
@@ -146,7 +154,11 @@ class AlignedStore<PatFrag Node> :
 // Load/Store PatFrags.
 def load_a          : AlignedLoad<load>;
 def store_a         : AlignedStore<store>;
-
+//short int
+def sextloadi16_a   : AlignedLoad<sextloadi16>;
+def zextloadi16_a   : AlignedLoad<zextloadi16>;
+def extloadi16_a    : AlignedLoad<extloadi16>;
+def truncstorei16_a : AlignedStore<truncstorei16>;
 //===----------------------------------------------------------------------===//
 // Instructions specific format
 //===----------------------------------------------------------------------===//
@@ -297,7 +309,10 @@ class RetBase<RegisterClass regClass> : JumpFR<0b010011, "jr", add, simm16, immS
     let hasExtraSrcRegAllocReq = 1;
 }
 
-
+// Effective Address
+class EffectiveAddress<string instrAsm, RegisterClass RC, Operand mem>
+        : FMem<0b0000001010, (outs RC:$rd), (ins mem:$addr), instrAsm,
+[(set RC:$rd, addr:$addr)], IIAlu>;
 
 //===----------------------------------------------------------------------===//
 // Instruction definition
@@ -308,9 +323,17 @@ class RetBase<RegisterClass regClass> : JumpFR<0b010011, "jr", add, simm16, immS
 //===----------------------------------------------------------------------===//
 
 /// Load and Store Instructions
-///  aligned
+///  aligned data
 def LD_W     : LoadM32<0b0010100010,  "ld.w",  load_a>;  //load a sign-extended word from memory to $rd
+def LD_H     : LoadM32<0b0010100001, "ld.h", sextloadi16_a>;//load a sign-extended half word from memory to $rd
+def LD_HU    : LoadM32<0b0010101001, "ld.hu", zextloadi16_a>;//load a zero-extended half word from memory to $rd
+def LD_B     : LoadM32<0b0010100000, "ld.b", sextloadi8>;//load a sign-extended byte from memory to $rd
+def LD_BU    : LoadM32<0b0010101000, "ld.bu", zextloadi8>;//load a zero-extended byte from memory to $rd
+
 def ST_W     : StoreM32<0b0010100110, "st.w",  store_a>; //store bit [31:0] of $rd to memory
+def ST_H     : StoreM32<0b0010100101, "st.h", truncstorei16_a>;//store bit [15:0] of $rd to memory
+def ST_B     : StoreM32<0b0010100100, "st.b", truncstorei8>;//store bit [7:0] of $rd to memory
+
 
 /// Arithmetic Instructions (ALU Immediate)
 // IR "add" defined in include/llvm/Target/TargetSelectionDAG.td, line 315 (def add).
@@ -382,6 +405,14 @@ def RET      : RetBase<GPROut>;
 /// No operation instruction
 let imm26=0 in
   def NOP   : FmtI26<0, (outs), (ins), "nop", [], IIAlu>;
+
+// FrameIndexs are legalized when they are opreands from load/store instruction.
+// The same not happens for stack address copies, so an add op with mem
+// ComplexPattern is used and the stack address copy can be matched.
+// It's similar to Sparc LEA_ADDRi
+def LEA_ADDI_W : EffectiveAddress<"addi.w\t$rd, $addr", GPR, mem_ea> {
+let isCodeGenOnly = 1;
+}
 
 //use JIRL ZERO, RA, 0 to replace IR instruction "ret", since LoongArch doesn't have "ret" like Mips
 let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in

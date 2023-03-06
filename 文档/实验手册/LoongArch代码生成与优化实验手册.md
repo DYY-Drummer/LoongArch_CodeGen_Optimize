@@ -800,8 +800,10 @@ void LoongArchInstPrinter::printMemOperand(const MCInst *MI, int OpNum,
 ```assembly
 def mem : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
+  //操作符为ops的dag值，它用于指定多个子操作数，有子操作数的操作数称为复合操作数
   let MIOperandInfo = (ops GPROut, simm12);
-  let EncoderMethod = "getMemEncoding"; //编码方法，用于生成OBJ文件时输出编码
+  //编码方法，用于生成OBJ文件时输出编码
+  let EncoderMethod = "getMemEncoding"; 
 }
 ```
 
@@ -1419,7 +1421,7 @@ int test_setxx()
 
 gdb ./llc
 
-set args -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.loongarch.s
+set args -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.s
 
 进入到lib/MC
 
@@ -1429,13 +1431,7 @@ break MCSubtargetInfo.cpp:206
 
 run
 
-```
-/llvm-project-llvmorg-10.0.0/llvm/lib/CodeGen/PrologEpilogInserter.cpp:1161（从这开始没出来过）
-/llvm-project-llvmorg-10.0.0/llvm/lib/CodeGen/PrologEpilogInserter.cpp:265
-/home/dyy/llvm-project-llvmorg-10.0.0/llvm/lib/CodeGen/MachineFunctionPass.cpp:73
-妈的好像是PrologEpilog的处理出了问题，但是LoongArchAsmPrinter.cpp没问题啊
-先做完到3.5再看能不能有输出
-```
+
 
 定位死循环位置：长时间continue后，ctrl+c暂停，输入下面命令可将debug信息输出到文件方便查看
 
@@ -1447,7 +1443,7 @@ run
 
 输入backtrace可查看当前调用函数的堆栈列表和所有父函数，检查是否一直困在某个父函数里。
 
-
+Node->dump()可打印出当前节点的易读信息
 
 + 可用如下指令分别统计所有.cpp,.td,.h,.txt文件的行数
 
@@ -1616,6 +1612,8 @@ Contents of section .text:
 
 ​		目前为止我们只处理了局部变量相关指令，本章将实现全局变量相关指令。与局部变量不同，翻译全局变量时的IR DAG是在运行时生成的，而局部变量的DAG是编译时根据描述文件生成的。本章的重点在于如何实现在运行时创建DAG，以及如何使用.td文件描述运行时生成的DAG的模式匹配规则。
 
+​		在LoongArch64的汇编代码中定义了“`la.got $rd, label`"伪指令，直接使用全局变量的段标签名访问全局变量，该伪指令在目标代码层面实际上也是扩展为了一系列计算全局变量地址的指令序列和ld.w读取指令的组合：`(ld.w (pcalau12i %got_pc_hi20(sym)) %got_pc_lo12(sym))`，来访问全局变量。为了使全局变量的访问过程更加直观，说明全局变量访问的执行细节，本章将不会使用la.got伪指令。
+
 ​		LoongArch的重定位模式分为静态模式（static，或称绝对寻址模式）和位置无关代码（PIC）模式两种，可通过`-relocation-mode`选项指定；数据存储方式分为.data/.bss模式和.sdata/.sbss模式两种（如2.1节中介绍的），可通过`-loongarch-use-small-section`选项指定，前者以32位寻址，计算地址所需指令数多，可寻址空间大，后者以12位寻址，指令效率高，可寻址空间小。通过以上两个选项的组合可生成2×2=4种格式的目标文件。
 
 ​		在静态重定位模式下，若使用.sdata/.sbss模式，则全局变量表内地址可以通过表基地址（GP）直接加上表内偏移值（不大于12-bit）计算；若使用.data/.bss模式，则需要将地址分为高20位和低12位转换为绝对地址。
@@ -1662,20 +1660,6 @@ Contents of section .text:
 
 ​		添加判断全局变量是否使用.sbss/.sdata段的函数。如果一个地址的大小小于.sbss/.sdata段的容量阈值，则默认其使用.sbss/.sdata段。只有全局变量能使用.sbss/.sdata段，全局函数名不可以。如果是有初始值的变量或只读数据，则放入.sdata段，如果是未初始化的变量则放入.sbss段。
 
-+  **LoongArchRegisterInfo.cpp**
-
-​		使用r20寄存器作为全局指针寄存器GP，用来保存全局偏移表的基地址，保留该寄存器。
-
-+ **LoongArchISelDAGToDAG（.h/.cpp）**
-
-​		提供获取全局变量表基址寄存器GP的接口。
-
-​		在DAGToDAG选择函数中将全局偏移表节点替换全局偏移表的基地址寄存器GP的节点。
-
-+ **LoongArchInstrInfo.td**
-
-​		添加自定义Selection DAG节点LoongArchHi、LoongArchLo、LoongArchGPRel、LoongArchWrapper。定义Pattern，将LoongArchHi节点下降为LU12I_W节点，加载全局变量地址的高20位，将LoongArchLo节点下降为ORI节点，加载全局变量地址的低12位。定义了两种全局变量寻址模式下的Pattern：绝对寻址模式分别加载高20位和低12位地址，GP相对寻址模式（GPRel）使用GP + Offset加载地址，类似栈地址立即数计算的匹配规则。最终将LoongArchISelLowering中得到的合法化DAG转为机器指令DAG。
-
 
 
 ## 5.2 静态重定位模式
@@ -1686,11 +1670,15 @@ Contents of section .text:
 
 ### 5.2.1 data/bss
 
-+ **LoongArchISelLowering（.h/.cpp）**
++ **LoongArchISelLowering(.h/.cpp)**
 
 ​		通过`setOperationAction(ISD::GlobalAddress, MVT::i32, Custom)`来将全局变量地址计算指定为自定义模式，在IR DAG的合法化阶段遇到`ISD::GlobalAddress`节点时，进入自定义节点下降方法LowerOperation()。LowerOperation()又会进一步选择调用`ISD::GlobalAddress`节点的全局变量地址处理函数LowerGlobalAddress()，选择下降为静态重定位模式还是PIC重定位模式，.sbss/.sdata模式还是.bss/.data模式的DAG节点。
 
 ​		通过自定义的ISD节点`LoongArchISD::Hi/Lo`组合成新的地址ISD节点，来加载不同数据段的全局变量地址，对于.sbss/.sdata段的全局变量地址立即数，可以直接加到GP上：`(load (warpper $gp, %got(sym)))`，对于.bss/.data段的全局变量地址立即数，需要分为低12位和高20位分别计算，然后再加到GP上：`(load (wrapper (add %hi(sym), $gp), %lo(sym)))`。
+
++ **LoongArchInstrInfo.td**
+
+​		添加自定义Selection DAG节点LoongArchHi、LoongArchLo、LoongArchGPRel、LoongArchWrapper。定义Pattern，将LoongArchHi节点下降为LU12I_W节点，加载全局变量地址的高20位，将LoongArchLo节点下降为ORI节点，加载全局变量地址的低12位。定义了两种全局变量寻址模式下的Pattern：绝对寻址模式分别加载高20位和低12位地址，GP相对寻址模式（GPRel）使用GP + Offset加载地址，类似栈地址立即数计算的匹配规则。最终将LoongArchISelLowering中得到的合法化DAG转为机器指令DAG。
 
 ---
 
@@ -1737,9 +1725,15 @@ globalVB:
 
 ​		如果是位置无关模式，或者使用.sdata/.sbss模式，则将FixGlobalBaseReg置为真。
 
-+ **LoongArchRegisterInfo.cpp**
++  **LoongArchRegisterInfo.cpp**
 
-​		根据FixGlobalBaseReg判断是否将GP寄存器加入保留寄存器列表。
+​		使用r20寄存器作为全局指针寄存器GP，用来保存全局偏移表的基地址，根据FixGlobalBaseReg判断是否将GP寄存器加入保留寄存器列表，保留GP寄存器。
+
++ **LoongArchISelDAGToDAG（.h/.cpp）**
+
+​		提供获取全局变量表基址寄存器GP的接口。
+
+​		在DAGToDAG选择函数中将全局偏移表节点替换全局偏移表的基地址寄存器GP的节点。
 
 ---
 
@@ -1800,6 +1794,8 @@ add.w   	$gp, $gp, $t7
 ```
 
 ​		`_gp_disp`是一个重定位标识符，在加载阶段，加载器将被调用函数加载入内存后，就可以根据被调用函数的地址将`_gp_disp`替换为被调用函数入口到全局偏移表的偏移值。
+
+​		T7寄存器保存的是被调用函数入口地址，由`.cpload   $T7`伪指令指定。
 
 ​		如上指令序列分别将该偏移值的高20位和低12位加载到GP中，然后与被调用函数入口地址（T7）相加，即可得到被调用函数使用的sdata段入口地址。
 
@@ -1871,7 +1867,7 @@ main:
 
 + **LoongArchMCInstLower.cpp**
 
-​		实现全局变量地址操作数下降方法LowerSymbolOperand()。5.2和5.3节中，在DAG合法化选择阶段将代表全局变量地址的操作数更换为了自定义的符号操作数，例如`LoongArch::MO_GOT_HI20`。这里需要将这些自定义符号操作数进一步下降为汇编表达式字符串，例如`%gp_rel`，符号操作数枚举变量与汇编文本的对应关系定义在MCTargetDesc/LoongArchMCExpr.cpp中。
+​		实现全局变量地址操作数下降方法LowerSymbolOperand()。5.2和5.3节中，在DAG合法化选择阶段将代表全局变量地址的操作数更换为了自定义的符号操作数，例如`LoongArch::MO_GOT_HI20`。这里需要将这些自定义符号操作数进一步下降为汇编表达式字符串，例如`%gp_rel`。符号操作数枚举变量与汇编表达式字符串的对应关系定义在MCTargetDesc/LoongArchMCExpr.cpp中。
 
 
 
@@ -1910,3 +1906,89 @@ int main(){
 ​		编译指令：`llc -march=loongarch -mcpu=loongarch32 -relocation-model=static/pic -loongarch-use-small-section=false/true -filetype=asm test.ll -o test.s`
 
 ​		输出结果请参考5.2-5.3节示例。
+
+
+
+# 第六章 新数据类型支持
+
+​		目前为止，我们的后端还只能处理32位的int型数据，本章将介绍如何在后端中添加新的数据类型支持。本章将实现的数据类型包括指针、布尔型、字符、长整型、短整型、浮点数、数组、结构和向量。这些标准数据类型在LLVM上层代码中已被大部分实现，我们仅需定义它们的指令格式和打印方式即可。
+
+
+
+## 6.1 指针
+
++ **LoongArchInstrInfo.td**
+
+​		添加指针的内存操作数定义`mem_ea`，指定其打印方式为printMemOperandEA。指针变量，也可以看作是一个总是取地址操作数的整形变量，所以它无需另外去匹配任何IR节点，只需在引用指针变量的操作前添加一条计算地址的指令即可（类似的处理方式请看sparc处理器的LEA_ADDRi指令），此处定义了LEA_ADDI_W来生成一条addi.w指令执行地址计算操作。
+
++ **InstPrinter/LoongArchInstPrinter(.h/.cpp)**
+
+​		实现指针内存操作数的打印方式printMemOperandEA()，同一般的栈内存操作一样，采用基地址寄存器 + 偏移的方式。
+
++ **编译测试**
+
+​		使用如下代码片段测试指针数据类型：
+
+```c
+int a = 6;
+int* pointer = &a;
+return *pointer;
+```
+
+​		输出汇编代码节选如下：
+
+```assembly
+addi.w	$r4, $r3, 12     // 计算a的地址，即&a
+st.w	$r4, $r3, 8      // SP+8为pointer的地址，将a的地址存入该地址，即pointer = &a
+ld.w	$r4, $r3, 8      // 读取pointer的值
+ld.w	$r4, $r4, 0      // 以pointer的值为目标地址读取值，即*pointer 
+```
+
+​		
+
+## 6.2 字符、布尔型和短整型
+
++ **LoongArchInstrInfo.td**
+
+​		添加有符号半字、无符号半字、有符号字节、无符号字节的类型定义，以及相应的load/store指令
+
+| 数据类型   | 存储指令 | 读取指令 |
+| ---------- | -------- | -------- |
+| 有符号半字 | ST_H     | LD_H     |
+| 无符号半字 | ST_H     | LD_HU    |
+| 有符号字节 | ST_B     | LD_B     |
+| 无符号字节 | ST_B     | LD_BU    |
+
+​		注意，字符变量即是字节型数据，短整型变量即是半字型数据。相同位数的有符号数和无符号数使用的存储指令相同，是因为对于短整型和字符型数据，在存储时，LLVM IR都是通过截取的方式（trunc指令）将i32型数据截取成i16、i8型数据再放入内存的，所以符号位会被截取掉，不影响结果。
+
++ **LoongArchISelLowering.cpp**
+
+​		布尔型变量为i1变量，但是龙芯架构中没有原生的i1型数据支持，所以我们将i1扩展为i32型数据再 setcc系列判断指令来生成。
+
+​		`setBooleanContents(ZeroOrOneBooleanContent)`用来描述目标机器如何表达“真值”和“假值”的语义，使用“ZeroOrOneBooleanContent”代表只看数据的第0位，为1即真，为0即假；
+
+​		`setBooleanVectorContents(ZeroOrNegativeOneBooleanContent)`用于描述位向量的布尔型，位向量的所有位都向第0位看齐（都为1或都为0），为0即真，为负数即假。
+
++ **编译测试**
+
+​		使用如下代码片段测试指针数据类型：
+
+```c
+TODO
+```
+
+​		输出汇编代码节选如下：
+
+```assembly
+TODO
+```
+
+​		
+
+## 6.3 长整型
+
+​		C语言中的long long在龙芯架构中为64-bit。
+
++ **LoongArchSEISelDAGToDAG.cpp**
+
+​		
