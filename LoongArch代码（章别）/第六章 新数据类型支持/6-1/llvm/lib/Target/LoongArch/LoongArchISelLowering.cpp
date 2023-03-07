@@ -92,7 +92,12 @@ LoongArchTargetLowering::create(const LoongArchTargetMachine &TM,
     return createLoongArchSETargetLowering(TM, STI);
 }
 
-
+EVT LoongArchTargetLowering::getSetCCResultType(const DataLayout &, LLVMContext &,
+                                           EVT VT) const {
+    if (!VT.isVector())
+        return MVT::i32;
+    return VT.changeVectorElementTypeToInteger();
+}
 //===----------------------------------------------------------------------===//
 // Lower Helper Functions
 //===----------------------------------------------------------------------===//

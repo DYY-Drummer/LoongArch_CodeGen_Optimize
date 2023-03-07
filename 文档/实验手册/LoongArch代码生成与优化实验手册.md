@@ -1620,23 +1620,23 @@ Contents of section .text:
 
 ​		假设gv为一全局变量，那么在不同模式下它对应的寻址模式、DAG、汇编代码如下表所示（在生成的汇编代码中gv的数据所在的段标签名也是"gv"，同时在汇编指令中也代表gv在全局变量表内地址值。`LoongArchISD:XXX`为自定义DAG节点，后面会讲解） ：
 
-| 数据存储方式      | .sdata/.sbss                                        | .data/.bss                                                   |
-| ----------------- | --------------------------------------------------- | ------------------------------------------------------------ |
-| 寻址模式          | 全局指针寄存器相对寻址                              | 绝对寻址                                                     |
-| 地址计算方式      | $GP + Offset                                        | 绝对地址值                                                   |
-| 合法化选择后的DAG | `(add register %GP,LoongArchISD::GPRel<gv offset>)` | `(add LoongArchISD::Hi<gv offset Hi20>LoongArchISD::Lo<gv offset Lo12>)` |
-| LoongArch汇编代码 | `ori $r4, $gp, %gp_rel(gv)`                         | `lu12i.w $r4, %hi(gv) `<br/>`ori $r4, $r4, %lo(gv)`          |
-| 重定位时机        | 链接时                                              | 链接时                                                       |
+| 数据存储方式      | .sdata/.sbss                      | .data/.bss                                          |
+| ----------------- | --------------------------------- | --------------------------------------------------- |
+| 寻址模式          | 全局指针寄存器相对寻址            | 绝对寻址                                            |
+| 地址计算方式      | $GP + Offset                      | 绝对地址值                                          |
+| 合法化选择后的DAG | ![static-sdata](static-sdata.PNG) | ![static-data](static-data.PNG)                     |
+| LoongArch汇编代码 | `ori $r4, $gp, %gp_rel(gv)`       | `lu12i.w $r4, %hi(gv) `<br/>`ori $r4, $r4, %lo(gv)` |
+| 重定位时机        | 链接时                            | 链接时                                              |
 
 ​		在PIC重定位模式下，全局变量表内地址均是相对全局指针寄存器计算的，如下表所示。
 
-| 数据存储方式      | .sdata/.sbss                                                 | .data/.bss                                                 |
-| ----------------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
-| 寻址模式          | 全局指针寄存器相对寻址                                       | 全局指针寄存器相对寻址                                     |
-| 地址计算方式      | $GP + Offset                                                 | $GP + Offset |                                                            |
-| 合法化选择后的DAG | `(load EntryToken, (LoongArchISD::Wrapper (add LoongArchISD::Hi<gv offset Hi20>, Register %GP), LoongArchISD::Lo<gv offset Lo12>))` | `(load (LoongArchISD::Wrapper register %GP, <gv offset>))` |
-| LoongArch汇编代码 | `lu12i.w $r4, %got_hi(gv)`<br>`add $r4, $r4, $gp`<br/>`ld.w $r4, %got_lo(gv)($r4)` | `ld.w $r4, %got(gv)($gp)`                                  |
-| 重定位时机        | 链接时                                                       | 链接时                                                     |
+| 数据存储方式      | .sdata/.sbss                | .data/.bss                                                   |
+| ----------------- | --------------------------- | ------------------------------------------------------------ |
+| 寻址模式          | 全局指针寄存器相对寻址      | 全局指针寄存器相对寻址                                       |
+| 地址计算方式      | `$GP + Offset`              | `$GP + Offset`                                               |
+| 合法化选择后的DAG | ![pic-sdata](pic-sdata.PNG) | ![pic-data](pic-data.PNG)                                    |
+| LoongArch汇编代码 | `ld.w $r4, %got(gv)($gp)`   | `lu12i.w $r4, %got_hi(gv)`<br/>`add $r4, $r4, $gp`<br/>`ld.w $r4, %got_lo(gv)($r4)` |
+| 重定位时机        | 链接时/加载时               | 链接时/加载时                                                |
 
 ​		实际上，在标准汇编中，原生的数据存储方式只有.data/.bss段，.sdata/.sbss段实际上是我们自定义的一个段，在后面输出的汇编代码中可以看到，使用.sdata/.sbss模式时，汇编器会将该数据段用“`.section .sdata`"伪指令来描述，相当于把该数据段当成了和main函数一样的代码段来处理。而使用.data/.bss模式时则是“`.data`”。
 
@@ -1911,7 +1911,7 @@ int main(){
 
 # 第六章 新数据类型支持
 
-​		目前为止，我们的后端还只能处理32位的int型数据，本章将介绍如何在后端中添加新的数据类型支持。本章将实现的数据类型包括指针、布尔型、字符、长整型、短整型、浮点数、数组、结构和向量。这些标准数据类型在LLVM上层代码中已被大部分实现，我们仅需定义它们的指令格式和打印方式即可。
+​		目前为止，我们的后端还只能处理32位的int型数据，本章将介绍如何在后端中添加新的数据类型支持。本章将实现的数据类型包括指针、布尔型、字符、长整型、短整型、浮点数、数组、结构体和向量。这些标准数据类型在LLVM上层代码中已被大部分实现，我们仅需定义它们的指令格式和打印方式即可。
 
 
 
@@ -2046,3 +2046,72 @@ TODO
 + **LoongArchInstrInfo.td**
 
 ​		引入新增的浮点运算指令描述文件，以参与TableGen生成。
+
+
+
++ **编译测试**
+
+​		使用如下代码片段测试浮点型数据：
+
+```c
+
+```
+
+​		输出汇编代码节选如下：
+
+```assembly
+TODO
+```
+
+
+
+
+
+## 6.5 数组和结构体
+
+​		LLVM使用[getelementptr](http://llvm.org/docs/LangRef.html#getelementptr-instruction)来计算类似结构体和数组一类的复合数据结构的子元素的地址，例如引用一个名为Date的结构体里的元素，将会生成的IR代码为：
+
+```assembly
+%1 = load i32* getelementptr inbounds (%struct.Date* @date, i32 0, i32 2), align 4
+```
+
+​		getelementptr指令在IR Selection DAG一级会被LLVM转换为基地址+偏移的计算模式，所以实际上并没有出现陌生的IR节点，可以说是原生支持了。
+
++ **编译测试**
+
+​		使用如下代码片段测试数组和结构体：
+
+```c
+
+```
+
+​		输出汇编代码节选如下：
+
+```assembly
+TODO
+```
+
+
+
+## 6.6 向量（SIMD)
+
+​		向量型数据允许单条指令并行计算多条数据（Single Instruction Multiple Data），例如对两个长度为8的向量执行大小比较操作，会同时分别对相同位上的子元素进行比较，产生8个比较结果，并返回为一个长度为8的向量。向量型数据也被LLVM很好地原生支持了，需要我们实现的地方很少。
+
++ **LoongArchISelLowering(.h/.cpp)**
+
+​		在执行SLT等比较命令时，返回结果的状态值只能接受Integer型，所以我们需要覆盖LLVM的getSetCCResultType()方法，在其中捕获向量结果，并将向量结果转换为长度相等，但是其中的子元素类型全为Integer型的向量。
+
++ **编译测试**
+
+​		使用如下代码片段测试向量型数据：
+
+```c
+
+```
+
+​		输出汇编代码节选如下：
+
+```assembly
+TODO
+```
+
