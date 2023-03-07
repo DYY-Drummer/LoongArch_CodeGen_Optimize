@@ -1,5 +1,4 @@
 //===- LoongArchInstrInfo.td - Target Description for LoongArch Target -*- tablegen -*-=//
-//===----------------------------------------------------------------------===//
 //
 // This file contains the LoongArch implementation of the TargetInstrInfo class.
 //
@@ -40,6 +39,18 @@ def RelocPIC        : Predicate<"TM.getRelocationModel() == Reloc::PIC_">;
 //===----------------------------------------------------------------------===//
 
 include "LoongArchInstrFormats.td"
+include "LoongArchFloatInstrFormats.td"
+
+
+//===----------------------------------------------------------------------===//
+// Floating Point Instruction
+//===----------------------------------------------------------------------===//
+
+include "LoongArchFloatInstrInfo.td"
+
+//===----------------------------------------------------------------------===//
+// Integer Instruction
+//===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 // LoongArch Operand, Complex Patterns and Transformations Definitions.
@@ -309,6 +320,20 @@ class RetBase<RegisterClass regClass> : JumpFR<0b010011, "jr", add, simm16, immS
     let hasExtraSrcRegAllocReq = 1;
 }
 
+// Count Leading Ones/Zeros in Word
+class CountLeading0<bits<22> op, string instr_asm, RegisterClass RC>:
+Fmt2R<op, (outs GPROut:$rd), (ins RC:$rj),
+!strconcat(instr_asm, "\t$rd, $rj"),
+[(set GPROut:$rd, (ctlz RC:$rj))], II_CLZ> {
+
+}
+class CountLeading1<bits<22> op, string instr_asm, RegisterClass RC>:
+Fmt2R<op, (outs GPROut:$rd), (ins RC:$rj),
+!strconcat(instr_asm, "\t$rd, $rj"),
+[(set GPROut:$rd, (ctlz (not RC:$rj)))], II_CLO> {
+
+}
+
 // Effective Address
 class EffectiveAddress<string instrAsm, RegisterClass RC, Operand mem>
         : FMem<0b0000001010, (outs RC:$rd), (ins mem:$addr), instrAsm,
@@ -405,6 +430,10 @@ def RET      : RetBase<GPROut>;
 /// No operation instruction
 let imm26=0 in
   def NOP   : FmtI26<0, (outs), (ins), "nop", [], IIAlu>;
+
+/// Count Leading
+def CLZ_W : CountLeading0<0b0000000000000000000101, "clz.w", GPR>;
+def CLO_W : CountLeading1<0b0000000000000000000100, "clo.w", GPR>;
 
 // FrameIndexs are legalized when they are opreands from load/store instruction.
 // The same not happens for stack address copies, so an add op with mem

@@ -2035,3 +2035,14 @@ TODO
 
 ​		形同整数寄存器定义，定义32个浮点寄存器F0-F31，浮点运算专用寄存器集合FPGPR。
 
++ **LoongArchFloatInstrFormats.td**
+
+​		添加浮点数运算指令格式基类，3寄存器类型和2寄存器类型
+
++ **LoongArchFloatInstrInfo.td**
+
+​		添加浮点四则运算指令，fadd、fsub、fmul、fdiv，这之中又分为单精度浮点数运算指令和双精度浮点数运算指令。
+
++ **LoongArchInstrInfo.td**
+
+​		引入新增的浮点运算指令描述文件，以参与TableGen生成。
