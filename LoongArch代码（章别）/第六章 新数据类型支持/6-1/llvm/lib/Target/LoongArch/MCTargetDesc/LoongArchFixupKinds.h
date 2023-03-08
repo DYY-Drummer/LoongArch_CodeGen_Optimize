@@ -33,11 +33,11 @@ namespace  LoongArch {
     // Pure lower 12 bit fixup resulting in - R_LOONGARCH_LO12.
     fixup_LoongArch_LO12,
 
-    // 16 bit fixup for GP offest resulting in - R_LOONGARCH_GPREL16.
-    fixup_LoongArch_GPREL16,
+    // 12 bit fixup for GP offest resulting in - R_LOONGARCH_GPREL12.
+    fixup_LoongArch_GPREL12,
 
     // GOT (Global Offset Table)
-    // Symbol fixup resulting in - R_LOONGARCH_GOT16.
+    // Symbol fixup resulting in - R_LOONGARCH_GOT12.
     fixup_LoongArch_GOT,
 
     

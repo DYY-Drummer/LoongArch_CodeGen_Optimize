@@ -58,11 +58,11 @@ unsigned LoongArchELFObjectWriter::getRelocType(MCContext &Ctx,
   case LoongArch::fixup_LoongArch_32:
     Type = ELF::R_LOONGARCH_32;
     break;
-  case LoongArch::fixup_LoongArch_GPREL16:
-    Type = ELF::R_LOONGARCH_GPREL16;
+  case LoongArch::fixup_LoongArch_GPREL12:
+    Type = ELF::R_LOONGARCH_GPREL12;
     break;
   case LoongArch::fixup_LoongArch_GOT:
-    Type = ELF::R_LOONGARCH_GOT16;
+    Type = ELF::R_LOONGARCH_GOT12;
     break;
   case LoongArch::fixup_LoongArch_HI20:
     Type = ELF::R_LOONGARCH_HI20;
@@ -92,7 +92,7 @@ LoongArchELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
   default:
     return true;
 
-  case ELF::R_LOONGARCH_GOT16:
+  case ELF::R_LOONGARCH_GOT12:
   // For LoongArch pic mode, I think it's OK to return true but I didn't confirm.
   //  llvm_unreachable("Should have been handled already");
     return true;
@@ -109,7 +109,7 @@ LoongArchELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
   case ELF::R_LOONGARCH_32:
     return true;
 
-  case ELF::R_LOONGARCH_GPREL16:
+  case ELF::R_LOONGARCH_GPREL12:
     return false;
   }
 }

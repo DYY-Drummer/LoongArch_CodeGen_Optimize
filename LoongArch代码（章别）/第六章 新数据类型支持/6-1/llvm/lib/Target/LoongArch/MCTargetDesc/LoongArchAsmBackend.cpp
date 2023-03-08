@@ -124,8 +124,8 @@ getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_LoongArch_32",             0,     32,   0 },
     { "fixup_LoongArch_HI20",           0,     20,   0 },
     { "fixup_LoongArch_LO12",           0,     12,   0 },
-    { "fixup_LoongArch_GPREL16",        0,     16,   0 },
-    { "fixup_LoongArch_GOT",            0,     16,   0 },
+    { "fixup_LoongArch_GPREL12",        0,     12,   0 },
+    { "fixup_LoongArch_GOT",            0,     12,   0 },
     { "fixup_LoongArch_GOT_HI20",       0,     20,   0 },
     { "fixup_LoongArch_GOT_LO12",       0,     12,   0 }
   };

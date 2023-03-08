@@ -1971,23 +1971,80 @@ ld.w	$r4, $r4, 0      // 以pointer的值为目标地址读取值，即*pointer
 
 + **编译测试**
 
-​		使用如下代码片段测试字符型、短整型和布尔型数据：
+​		使用如下代码片段测试字符型和短整型数据：
 
 ```c
-TODO
+int test_char()
+{
+    char a = 0x80;
+    int i = (signed int)a;
+    unsigned char c = 0x80;
+    unsigned int ui = (unsigned int)c;
+    i = i + 2; // i = (-128+2) = -126
+    ui = ui + 2; // i = (128+2) = 130
+    return i + ui;
+}
+int test_short()
+{
+    short a = 0x8000;
+    unsigned short c = 0x8000;
+    int i = (signed int)a;
+    unsigned int ui = (unsigned int)c;
+    i = i + 2; // i = (-32768+2) = -32766
+    ui = ui + 2; // i = (32768+2) = 32770
+    return i + ui;
+}
 ```
 
-​		输出汇编代码节选如下：
+​		输出汇编代码节选如下，完整代码请查看附录：
 
 ```assembly
-TODO
+test_char:
+...
+	addi.w	$r4, $r0, 128       # 0x80
+	st.b	$r4, $r3, 15        # store a = 0x80 as byte
+	ld.b	$r5, $r3, 15        # load a as byte
+	st.w	$r5, $r3, 8         # store i = a as word
+...
+test_short:
+...
+	ori	$r4, $r0, 32768			# 0x8000
+	st.h	$r4, $r3, 14		# store a = 0x8000
+	st.h	$r4, $r3, 12		# store c = 0x8000
+	ld.h	$r4, $r3, 14		# load a
+	st.w	$r4, $r3, 8			# store i =a
+	ld.hu	$r4, $r3, 12		# load c as unsigned half word
+...
 ```
 
-​		
+​		unsigned int 和 int 都是4字节，但是为了满足栈内以16字节对齐的要求，实际上都补齐为了7字节，char类型占据1字节，无补齐。栈内数据分布由高到低依次为：a（15-16）、i（8-15）、c（7-8）、ui（0-7），与变量声明的次序相同。可以看到，对于类似`char->unsigned int`的强制类型转换，都是通过load和store操作的变体来完成的（以ld.b读取一字节数据，以st.w存储该数据就将一字节型数据转换为了4字节型数据）。
+
+​		由于c语言不支持布尔型变量而c++文件生成的IR又需要控制流实现，目前我们的后端还不支持，所以直接使用如下.ll文件测试布尔型变量：
+
+```assembly
+define zeroext i1 @test_bool() #0 {
+entry:
+%retval = alloca i1, align 1			
+store i1 1, i1* %retval, align 1
+%0 = load i1, i1* %retval
+ret i1 %0
+}
+```
+
+​		输出汇编代码节选如下，完整代码请查看附录：
+
+```assembly
+addi.w	$r4, $r0, 1
+st.b	$r4, $r3, 15
+```
+
+​		测试程序中使用i1模拟布尔型变量，并返回true，可以看到在汇编代码中，后端使用“1”来代表真值，使用st.b来存放布尔型变量。
+
+
 
 ## 6.3 长整型
 
-​		C语言中的long long在龙芯架构中为64-bit。
+​		C语言中的long long在ILP32 ABI中为64-bit。
 
 + **LoongArchSEISelDAGToDAG.cpp**
 
@@ -1997,7 +2054,9 @@ TODO
 
 ​		替换分为三个步骤：1）将原IR节点的输入操作数复制，并嫁接到替补节点上。2、调用CurDAG->getMachineNode()方法创建两个新的机器节点Lo和Hi，opcode分别为MUL_W和MULH_W(U)，操作数均为1）中的操作数。3）用Lo、Hi节点在SMUL_LOHI/UMUL_LOHI节点的数据链上将其两个输出节点替换掉（这样任何使用原来的SMUL_LOHI/UMUL_LOHI节点的输出结果的地方都会转而使用Lo、Hi节点的输出结果），最后把SMUL_LOHI/UMUL_LOHI节点删掉。
 
-​		对于64位加减法，会生成使用进位的ADDE和SUBE节点，这两个节点包含三个操作数：左操作数、右操作数和输入进位标志。输出包含两个结果：加减法的结果和输出进位标志。进位标志用于指示后端将节点链接在一起从而实现任意大数值的加减法。我们需要做的同样是在trySelect()方法中捕获ADDE/SUBE节点，并用SLTU指令来为它们提供是否进位的判断标志。
+​		对于64位加减法，会生成使用进位的ADDE和SUBE节点，这两个节点包含三个操作数：左操作数、右操作数和输入进位标志。输出包含两个结果：加减法的结果和输出进位标志。进位标志用于指示后端将节点链接在一起从而实现任意大数值的加减法。在32位架构中，long long型为64位，而寄存器为32位，故每次操作long long型数据时都是对高32位和低32位分别计算的，存放时也是将高32位和低32位分别存放在两个连续的4字节的栈空间内（高位在高地址，低位在低地址）。当long long数据参与加法计算时，低32位与低32位相加，高32位与高32位相加，为了判定相加后的低32位是否需要进位（结果是否大于32位），只需将低32位的计算结果与任意一个原操作数的低32位进行比较，若结果小于原操作数，则说明发生进位，若大于等于，则说明没发生进位。这一行为很好理解，假设一个无符号32位数a与一个无符号32位数b相加，相加结果为r。若不发生进位，即r<0xffffffff（无符号32位最大值），则r的低32位必定大于a且大于b。若发生进位，即r>0xffffffff，r的低32位为r-0x100000000（溢出归零），设a，b中较小的为a，令r-0x100000000>=a，则r>=a+0x100000000，即a + b >= a+0x100000000, 即b >= 0x100000000，显然不可能，故r的低32位必小于a且小于b。
+
+​		所以在ADDE和SUBE节点中需要添加此比较操作，我们需要做的同样是在trySelect()方法中捕获ADDE/SUBE节点，并用SLTU指令来为它们提供是否进位的判断标志。
 
 
 
@@ -2006,7 +2065,7 @@ TODO
 ​		使用如下代码片段测试长整型数据：
 
 ```c
-long long main()
+long long test_longlong()
 {
     long long a = 0x300000002;
     long long b = 0x100000001;
@@ -2020,10 +2079,27 @@ long long main()
 ​		输出汇编代码节选如下：
 
 ```assembly
-TODO
+test_longlong:
+...
+	addi.w	$r4, $r0, 3     # a的高32位0x00000003
+	st.w	$r4, $r3, 44    # a的高32位存放在栈中[47-44]字节
+	addi.w	$r4, $r0, 2     # a的低32位0x00000002
+	st.w	$r4, $r3, 40	# a的低32位存放在栈中[43-40]字节
+...
+	ld.w	$r4, $r3, 40    # 读取a的低32位
+	ld.w	$r5, $r3, 44	# 读取a的高32位
+	ld.w	$r6, $r3, 32	# 读取b的低32位
+	ld.w	$r7, $r3, 36	# 读取b的高32位
+	add.w	$r5, $r5, $r7	# a的高32位与b的高32位相加
+	add.w	$r6, $r4, $r6	# a的低32位与b的低32位相加
+	sltu	$r4, $r6, $r4	# 判断是否进位
+	add.w	$r4, $r5, $r4	# 将进位数加到高32位上
+...
 ```
 
-​		
+​		在如上汇编代码中，a+b的运算分为高32位和低32位进行，若低32位结果发生进位，则将进位标志（寄存器r4）置1，并加到结果的高32位上，便可实现进1位到第33位的效果。若进位标志为零，加零相当于不进位。LLVM IR这种连接高低位之间进位关系的技巧十分巧妙。
+
+
 
 ## 6.4 浮点数
 
@@ -2049,21 +2125,7 @@ TODO
 
 
 
-+ **编译测试**
-
-​		使用如下代码片段测试浮点型数据：
-
-```c
-
-```
-
-​		输出汇编代码节选如下：
-
-```assembly
-TODO
-```
-
-
+​		浮点数运算需要调用一些函数库，而调用函数的功能目前尚未实现，请查看第8章。
 
 
 
@@ -2082,14 +2144,56 @@ TODO
 ​		使用如下代码片段测试数组和结构体：
 
 ```c
+struct Date
+{
+    int year;
+    int month;
+    int day;
+};
+struct Date date = {2023, 3, 8};
 
+int test_struct_array()
+{
+    int a[3] = {2023, 3, 8};
+    int day = date.day;
+    int i = a[1];
+    return (i+day);  // 3 + 8 = 11
+}
 ```
 
 ​		输出汇编代码节选如下：
 
 ```assembly
-TODO
+test_struct_array:
+...
+	ld.w	$r4, $r20, %got(.L__const.test_struct_array.a)
+	ori	$r4, $r4, %lo(.L__const.test_struct_array.a) # r4 = 数组a的地址
+	ld.w	$r5, $r4, 8				# 获取a[2]
+	st.w	$r5, $r3, 28
+	ld.w	$r5, $r4, 4				# 获取a[1]
+	st.w	$r5, $r3, 24
+	ld.w	$r4, $r4, 0				# 获取a[0]
+	st.w	$r4, $r3, 20
+	lu12i.w	$r4, %got_hi(date)		# Date地址的高20位
+	add.w	$r4, $r4, $r20			# Date地址的低12位
+	ld.w	$r4, $r4, %got_lo(date)	# 获取到结构体Date在全局偏移表的地址
+	ld.w	$r4, $r4, 8				# Date的地址+8字节，即Date中的第三个元素day的地址
+...
+date:
+	.word	2023                    # 0x7e7
+	.word	3                       # 0x3
+	.word	8                       # 0x8
+...
+	.section	.rodata,"a",@progbits
+.L__const.test_struct_array.a:
+	.word	2023                    # 0x7e7
+	.word	3                       # 0x3
+	.word	8                       # 0x8
 ```
+
+​		对于数组型数据，在进入函数时会首先将所有的数组元素存放到栈中，之后对数组元素的操作实际上都是对栈中的复制值的操作。数组a属于.rodata段，属于只读数据（ro-Read Only）。对于结构体Date，在ILP32 ABI中，每个int元素占据4字节，所以第N个元素的偏移地址就等于(N-1) × 4。
+
+​		单从.data段的组织形式来看，从汇编代码的角度出发，结构体和数组的存储形式其实是一样的，都是“具有一段连续存储空间的多个子元素的联合体”。不同的是，结构体中允许存在不同类型的子元素，而数组中只能存在一种类型的子元素，可以说，数组是结构体的一个特例。
 
 
 
@@ -2103,15 +2207,23 @@ TODO
 
 + **编译测试**
 
-​		使用如下代码片段测试向量型数据：
+​		C语言不支持原生的向量型数据，需要使用`_attribute_`扩展自定义变量类型，将8个long型变量组装成一个向量。使用如下代码片段测试向量型数据：
 
 ```c
+typedef long vector __attribute__((__vector_size__(32)));
 
+int test_vector() {
+    volatile vector a = {1, 1, 1, 1, 0, 0, 0, 0};
+    volatile vector b = {0, 0, 0, 0, 1, 1, 1, 1};
+    volatile vector c;
+    c = a < b; // c = {0, 0, 0, 0, -1, -1, -1, -1}
+    return (c[0]+c[1]+c[2]+c[3]+c[4]+c[5]+c[6]+c[7]); //-4
+}
 ```
 
-​		输出汇编代码节选如下：
+​		输出汇编代码较长，此处不再贴出，请参考附录。查看汇编代码可知，对于向量型数据，LLVM后端实际上是将其当成了数组处理，不过并没有在.data段为其开辟空间，而是在函数调用开始时直接存入栈中，每个子元素依次存储并按照long型（4字节）对齐。进行`a < b`的向量运算时也是将a，b中的子元素一个个读取出来，依次执行8次`slt`指令判断大小关系，然后将结果存入c的栈空间中。
 
-```assembly
-TODO
-```
+
+
+# 控制流
 

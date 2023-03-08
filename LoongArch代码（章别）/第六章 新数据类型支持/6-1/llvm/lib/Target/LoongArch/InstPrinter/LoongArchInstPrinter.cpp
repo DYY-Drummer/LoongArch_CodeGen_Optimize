@@ -58,7 +58,7 @@ void LoongArchInstPrinter::printUnsignedImm(const MCInst *MI, int OpNum,
                                        raw_ostream &O) {
     const MCOperand &MO = MI->getOperand(OpNum);
     if (MO.isImm())
-        O << (unsigned short int)MO.getImm();
+        O << MO.getImm();
     else
         printOperand(MI, OpNum, O);
 }
