@@ -61,6 +61,18 @@ include "LoongArchFloatInstrInfo.td"
 class LoongArchInstAlias<string Asm, dag Result, bit Emit = 0b1> :
 InstAlias<Asm, Result, Emit>;
 
+// B Series jump control, e.g. BEQ, BNE
+def brtarget16    : Operand<OtherVT> {
+let EncoderMethod = "getBranch16TargetOpValue";
+let OperandType = "OPERAND_PCREL";
+let DecoderMethod = "DecodeBranch16Target";
+}
+
+// jump target for Unconditional jump - B
+def jmptarget    : Operand<OtherVT> {
+let EncoderMethod = "getJumpTargetOpValue";
+let OperandType = "OPERAND_PCREL";
+}
 
 // Signed Operand
 def simm20      : Operand<i32> {
@@ -276,7 +288,18 @@ class StoreM32<bits<10> op, string instr_asm, PatFrag OpNode,
   : STORE_2RI12<op, instr_asm, OpNode, GPROut, mem, Pseudo> {
 }
 
-
+/// Conditional Branch, e.g. BEQ $r1, $r2, brtarget16
+// Note: the order of rj and rd here is different from other instructions.
+class CBranch16<bits<6> op, string instr_asm, PatFrag cond_op, RegisterClass RC>:
+Fmt2RI16<op, (outs), (ins RC:$rj, RC:$rd, brtarget16:$imm16),
+!strconcat(instr_asm, "\t$rj, $rd, $imm16"),
+[(brcond (i32 (cond_op RC:$rj, RC:$rd)), bb:$imm16)], IIBranch>,
+Requires<[HasSlt]> {
+let isBranch = 1;
+let isTerminator = 1;
+let hasDelaySlot = 1;
+let Defs = [R21];
+}
 
 /// SetCC
 class SetCC_R<bits<17> op, string instr_asm, PatFrag cond_op,
@@ -302,6 +325,15 @@ Fmt2R<op, (outs GPROut:$rd), (ins RC:$rj),
 [], IIAlu> {
 }
 
+// Unconditional branch, B
+class UncondBranch<bits<6> op, string instr_asm>:
+FmtI26<op, (outs), (ins jmptarget:$addr),
+!strconcat(instr_asm, "\t$addr"), [(br bb:$addr)], IIBranch> {
+let isBranch = 1;
+let isTerminator = 1;
+let isBarrier = 1;
+let hasDelaySlot = 0;
+}
 
 //@JumpFR {
 let isBranch=1, isTerminator=1, isBarrier=1, imm16=0, hasDelaySlot = 1,
@@ -420,6 +452,22 @@ def SLT     : SetCC_R<0b00000000000100100, "slt", setlt, GPR>;
 def SLTU    : SetCC_R<0b00000000000100101, "sltu", setult, GPR>;
 }
 
+/// Jump and Branch Instructions
+let Predicates = [HasSlt] in {
+def BEQ     : CBranch16<0b010110, "beq", seteq, GPROut>;
+def BNE     : CBranch16<0b010111, "bne", setne, GPROut>;
+def BLT     : CBranch16<0b011000, "blt", setlt, GPROut>;
+def BGE     : CBranch16<0b011001, "bge", setge, GPROut>;
+def BLTU     : CBranch16<0b011010, "bltu", setult, GPROut>;
+def BGEU     : CBranch16<0b011011, "bgeu", setuge, GPROut>;
+}
+def B     : UncondBranch<0b010100, "b">;
+
+//@ long branch support //1
+let isBranch = 1, isTerminator = 1, isBarrier = 1,
+        hasDelaySlot = 0, Defs = [RA] in
+        def BL: FmtI26<0b010101, (outs), (ins jmptarget:$addr), "bl\t$addr", [], IIBranch>,
+Requires<[HasSlt]>;
 
 def JIRL      : Fmt2RI16<0b010011, (outs GPROut:$rd), (ins GPR:$rj, simm16:$imm16), "jirl", [], IIBranch>;
 def RET      : RetBase<GPROut>;
@@ -492,14 +540,19 @@ def : Pat<(not GPR:$in),(NOR GPR:$in, ZERO)>;
 
 // hi/lo relocs
 def : Pat<(LoongArchHi tglobaladdr:$in), (LU12I_W tglobaladdr:$in)>;
-
+def : Pat<(LoongArchHi tblockaddress:$in), (LU12I_W tblockaddress:$in)>;
+def : Pat<(LoongArchHi tjumptable:$in), (LU12I_W tjumptable:$in)>;
 
 def : Pat<(LoongArchLo tglobaladdr:$in), (ORI ZERO, tglobaladdr:$in)>;
-
+def : Pat<(LoongArchLo tblockaddress:$in), (ORI ZERO, tblockaddress:$in)>;
+def : Pat<(LoongArchLo tjumptable:$in), (ORI ZERO, tjumptable:$in)>;
 
 def : Pat<(add GPR:$hi, (LoongArchLo tglobaladdr:$lo)),
         (ORI GPR:$hi, tglobaladdr:$lo)>;
-
+def : Pat<(add GPR:$hi, (LoongArchLo tblockaddress:$lo)),
+        (ORI GPR:$hi, tblockaddress:$lo)>;
+def : Pat<(add GPR:$hi, (LoongArchLo tjumptable:$lo)),
+        (ORI GPR:$hi, tjumptable:$lo)>;
 
 // gp_rel relocs
 def : Pat<(add GPR:$gp, (LoongArchGPRel tglobaladdr:$in)),
@@ -509,14 +562,55 @@ def : Pat<(add GPR:$gp, (LoongArchGPRel tglobaladdr:$in)),
 class WrapperPat<SDNode node, Instruction ORIOp, RegisterClass RC>
         : Pat<(LoongArchWrapper RC:$gp, node:$in), (ORIOp RC:$gp, node:$in)>;
 def : WrapperPat<tglobaladdr, ORI, GPROut>;
-
+def : WrapperPat<tjumptable, ORI, GPROut>;
 
 def : Pat<(i32 (extloadi1  addr:$src)), (LD_BU addr:$src)>;
 def : Pat<(i32 (extloadi8  addr:$src)), (LD_BU addr:$src)>;
 def : Pat<(i32 (extloadi16_a addr:$src)), (LD_HU addr:$src)>;
 
 
+// brcond for slt instruction
+multiclass BrcondPatsSlt<RegisterClass RC, Instruction BEQOp, Instruction BNEOp,
+        Instruction BLTOp, Instruction BGEOp, Instruction BLTUOp, Instruction BGEUOp,
+        Instruction SLTOp, Instruction SLTUOp, Instruction SLTIOp, Instruction SLTUIOp,
+        Register ZEROReg> {
+        def : Pat<(brcond (i32 (setne RC:$lhs, 0)), bb:$dst),
+        (BNEOp RC:$lhs, ZEROReg, bb:$dst)>;
+        def : Pat<(brcond (i32 (seteq RC:$lhs, 0)), bb:$dst),
+        (BEQOp RC:$lhs, ZEROReg, bb:$dst)>;
 
+        def : Pat<(brcond (i32 (seteq RC:$lhs, RC:$rhs)), bb:$dst),
+        (BEQOp RC:$lhs, RC:$rhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setueq RC:$lhs, RC:$rhs)), bb:$dst),
+        (BEQOp RC:$lhs, RC:$rhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setne RC:$lhs, RC:$rhs)), bb:$dst),
+        (BNEOp RC:$lhs, RC:$rhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setune RC:$lhs, RC:$rhs)), bb:$dst),
+        (BNEOp RC:$lhs, RC:$rhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setlt RC:$lhs, RC:$rhs)), bb:$dst),
+        (BLTOp RC:$lhs, RC:$rhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setult RC:$lhs, RC:$rhs)), bb:$dst),
+        (BLTUOp RC:$lhs, RC:$rhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setgt RC:$lhs, RC:$rhs)), bb:$dst),
+        (BLTOp RC:$rhs, RC:$lhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setugt RC:$lhs, RC:$rhs)), bb:$dst),
+        (BLTUOp RC:$rhs, RC:$lhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setle RC:$lhs, RC:$rhs)), bb:$dst),
+        (BGEOp RC:$rhs, RC:$lhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setule RC:$lhs, RC:$rhs)), bb:$dst),
+        (BGEUOp  RC:$rhs, RC:$lhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setge RC:$lhs, RC:$rhs)), bb:$dst),
+        (BGEOp RC:$lhs, RC:$rhs, bb:$dst)>;
+        def : Pat<(brcond (i32 (setuge RC:$lhs, RC:$rhs)), bb:$dst),
+        (BGEUOp RC:$lhs, RC:$rhs, bb:$dst)>;
+
+        def : Pat<(brcond RC:$cond, bb:$dst),
+        (BNEOp RC:$cond, ZEROReg, bb:$dst)>;
+}
+
+let Predicates = [HasSlt] in {
+defm : BrcondPatsSlt<GPR, BEQ, BNE, BLT, BGE, BLTU, BGEU, SLT, SLTU, SLTI, SLTUI, ZERO>;
+}
 
 
 // setcc for slt instruction

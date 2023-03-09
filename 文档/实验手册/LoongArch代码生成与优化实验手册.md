@@ -59,7 +59,7 @@ LoongArch的ELF psABI文档：
   	git blame 可以查询该文件的某一行的commit号（如4845531f）
   	git log -1 4845531f 可显示该commit的备注说明
 
-+ 本文存在大量以缩略词命名的代码，为方便理解，请查看附录中的缩略词索引.md
++ 本文存在大量以缩略词命名的代码，为方便理解，请查看附录中的"缩略词索引.md"
 
 
 
@@ -102,7 +102,7 @@ LoongArch的ELF psABI文档：
 
 ![指令编码格式](指令编码格式.PNG)
 
-​		LoongArch学习Mips使用了SLT和BEQ指令处理控制流语句，相比ARM的老式CMP指令性能更佳。应用级基础整数指令一览如下图所示：
+​		LoongArch学习Mips使用了SLT和BEQ指令处理条件分支语句，相比ARM的老式CMP指令性能更佳（具体解释请看第7.1节 条件分支语句）。应用级基础整数指令一览如下图所示：
 
 ![基础整数指令](基础整数指令.PNG)
 
@@ -112,7 +112,7 @@ LoongArch的ELF psABI文档：
 
 ### 1.1.4 指令执行阶段
 
-​		LoongArch架构与Mips架构相同，为五阶段流水线结构，分别是指令获取、指令解码、执行、内存访问和写回。下面描述了每个阶段处理器负责的工作。
+​		LoongArch架构与Mips架构相同，为五阶段流水线结构，即每条机器指令在工作时必须经历的5个阶段：指令获取、指令解码、执行、内存访问和写回。下面描述了每个阶段处理器负责的工作。
 
 ​		1）指令获取（IF）
 
@@ -1338,7 +1338,10 @@ int main()
 -view-sched-dags: Selected selection DAG
 将.dot文件转换为png图片：dot /tmp/dag.main-b09641.dot -Tpng -o test.png
 
+-filter-view-dags:可以只打印基本块
 ```
+
+​		不过，使用Graphviz选项运行llc命令，只有在你的后端能正常生成完整的.s文件的前提下，才能生成正常的.dot文件，否则会生成损坏的.dot文件。如果你是因为某个指令处理不当导致.s文件生成失败而想查看失败前的DAG选择情况，请配合GDB工具，在异常中断前的某个节点处打上断点，然后通过 `print CurDAG->viewGraph()`来生成.dot文件。
 
 
 
@@ -2019,7 +2022,7 @@ test_short:
 
 ​		unsigned int 和 int 都是4字节，但是为了满足栈内以16字节对齐的要求，实际上都补齐为了7字节，char类型占据1字节，无补齐。栈内数据分布由高到低依次为：a（15-16）、i（8-15）、c（7-8）、ui（0-7），与变量声明的次序相同。可以看到，对于类似`char->unsigned int`的强制类型转换，都是通过load和store操作的变体来完成的（以ld.b读取一字节数据，以st.w存储该数据就将一字节型数据转换为了4字节型数据）。
 
-​		由于c语言不支持布尔型变量而c++文件生成的IR又需要控制流实现，目前我们的后端还不支持，所以直接使用如下.ll文件测试布尔型变量：
+​		由于c语言不支持布尔型变量而c++文件生成的IR又需要条件分支语句（br跳转指令）来实现，目前我们的后端还不支持，所以直接使用如下.ll文件测试布尔型变量：
 
 ```assembly
 define zeroext i1 @test_bool() #0 {
@@ -2225,5 +2228,95 @@ int test_vector() {
 
 
 
-# 控制流
+# 第七章 条件分支
 
+​		本章将介绍C语言中的条件分支（例如if、else和while循环等）在LLVM IR中的表现形式，并在LoongArch后端中实现IR条件分支语句到LoongArch目标代码的生成支持。在7.2节“消除冗余跳转指令”中还会介绍如何在后端中添加基本优化Pass，并实现一个针对后端条件分支处理的优化。
+
+​		
+
+## 7.1 条件分支语句
+
+### 7.1.1 LLVM IR条件分支控制简介	
+
+​	为了更好地说明LLVM IR对条件分支语句的处理细节，首先使用clang将如下代码片段翻译为LLVM IR：
+
+```c
+int a = 1;
+if (a > 0) {
+	a--; 
+}
+```
+
+```assembly
+... ;test.ll
+%4 = icmp sgt i32 %3, 0
+  br i1 %4, label %5, label %8
+  
+5:                                                ; preds = %0
+  %6 = load i32, i32* %2, align 4
+  %7 = add nsw i32 %6, -1
+  store i32 %7, i32* %2, align 4
+  br label %8
+```
+
+​		对于“a > 0”，IR使用sgt（signed greater than）指令进行比较，比较结果存放在%4中，然后用br指令执行条件跳转，若条件为真，即%4 = 1，则跳转到5号标签处，否则跳转到8号标签处。对于条件分支的语句块，LLVM IR一般采用递增的唯一数字编号命名，5号标签即是if的大括号内的代码块的入口地址，在其中执行“a--“操作。
+
+​		接着分析由IR转换成的IR DAG，使用llc的`-debug`编译选项编译上面生成的IR程序，由于我们尚未支持br指令，所以编译会在指令选择阶段中断，不过依然可以打印出”Optimized legalized selection“阶段的DAG信息：
+
+```assembly
+Optimized legalized selection DAG: %bb.0 'main:'
+SelectionDAG has 14 nodes:
+...
+    t23: ch = br_cc t7, setlt:ch, t8, Constant:i32<1>, BasicBlock:ch< 0x52cd3f8>
+  t16: ch = br t23, BasicBlock:ch< 0x52cd338>
+```
+
+​		"ch"是“chain”的缩写，代表一系列有序节点。
+
+​		从跳转条件分，跳转指令分为有条件跳转和无条件跳转，从跳转地址模式分，跳转指令分为使用绝对地址的直接跳转和使用相对偏移的间接跳转。
+
+​		可以看到，在IR DAG中，有条件跳转的节点为br_cc，无条件跳转的节点为br，“BasicBlock"代表可供跳转的代码块，我们需要做的就是在后端中实现这些IR 节点到机器指令节点的匹配模式。
+
+​		目前主流的分支跳转指令设计分为两大流派：1）以ARM和x86为代表的“J”系列跳转指令，如JMP，JNE，JEQ等。2）以Mips为代表的“B”系列跳转指令，如BEQ，BNE等。
+
+​		LoongArch采用了“B”系列的跳转指令设计，因为其相比“J”系列占用资源少，指令效率高。“J”系列指令的核心是条件状态寄存器SW，首先通过CMP指令执行需要判断的语句，将判断结果保存于SW寄存器，再执行JNE等指令指定跳转目的地址，根据SW的值决定是否跳转。这种模式虽然和LLVM IR的结构天然兼容（DAG结构相同），但是需要至少两条的指令执行条件跳转控制，还需要一直占用一个寄存器资源，比较低效。“B”系列指令将条件判断和目的跳转集成为了一条指令。如BNE指令，包含三个操作数：左比较数L、右比较数R和偏移地址offset。若L不等于R则跳转到目标地址，目标地址等于PC+offset，属于间接跳转。两种跳转指令模式的对比如下图：
+
+![J系列和B系列跳转指令](J系列和B系列跳转指令.PNG)
+
+
+
+### 7.1.2 指令定义和DAG匹配
+
+​		条件分支相关的IR节点包括两部分，12种判断节点：seteq、setueq、setne、setune、setlt、setult、setgt、setugt、setle、setule、setge、setuge，1种跳转节点：brcond。类似J系列指令的条件分支设计，IR DAG中条件分支跳转也是分为两步实现：`(brcond (setOp $lhs, $rhs), $Label)`。首先通过set判断指令获取条件判断结果，再通过brcond根据判断结果选择是否跳转到目的地址。在后端中实现条件分支语句支持的第一步，就是定义以上节点需要的机器指令和DAG匹配规则。
+
++ **LoongArchInstrInfo.td**
+
+​		添加B系列判断指令以支持IR判断节点。龙芯指令集中并没有为这12种判断方式一一提供相应的指令，而是只提供了BEQ、BNE、BLT、BGE、BLTU、BGEU 6种条件转移指令，不过我们可以通过这6种指令和SLT系列指令的组合获得和全部12种判断方式相同的效果。读者可能会问，既然提供了BLT（小于），为什么不顺便提供BGT（大于）指令呢？因为只需将BLT的左右操作数调转，就是BGT，即`(BLT $rhs, $lhs) <=> (BGT $lhs, $rhs) `，这种对称设计思想在精简指令集的设计中十分重要，可以最大限度地减少必要的基本指令的数量。
+
+​		在有条件跳转语句中可能出现的所有IR DAG情况和其匹配的机器指令DAG的对应关系如下表所示：
+
+|      | IR DAG                                              | 机器指令DAG                         |
+| ---- | --------------------------------------------------- | ----------------------------------- |
+|      | `(brcond (i32 (setne RC:$lhs, 0)), bb:$dst)`        | `(BNE RC:$lhs, ZERO, bb:$dst)`      |
+|      | `(brcond (i32 (seteq RC:$lhs, 0)), bb:$dst)`        | `(BEQ RC:$lhs, ZERO, bb:$dst)`      |
+|      | `(brcond (i32 (seteq RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BEQ RC:$lhs, RC:$rhs, bb:$dst)`   |
+|      | `(brcond (i32 (setueq RC:$lhs, RC:$rhs)), bb:$dst)` | `(BEQ RC:$lhs, RC:$rhs, bb:$dst)`   |
+|      | `(brcond (i32 (setne RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BNE RC:$lhs, RC:$rhs, bb:$dst)`   |
+|      | `(brcond (i32 (setune RC:$lhs, RC:$rhs)), bb:$dst)` | `(BNE RC:$lhs, RC:$rhs, bb:$dst)`   |
+|      | `(brcond (i32 (setlt RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BLT RC:$lhs, RC:$rhs, bb:$dst)`   |
+|      | `(brcond (i32 (setult RC:$lhs, RC:$rhs)), bb:$dst)` | `(BLTU RC:$lhs, RC:$rhs, bb:$dst)`  |
+|      | `(brcond (i32 (setgt RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BLT RC:$rhs, RC:$lhs, bb:$dst)`   |
+|      | `(brcond (i32 (setugt RC:$lhs, RC:$rhs)), bb:$dst)` | `(BLTU RC:$rhs, RC:$lhs, bb:$dst)`  |
+|      | `(brcond (i32 (setle RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BGE RC:$rhs, RC:$lhs, bb:$dst)`   |
+|      | `(brcond (i32 (setule RC:$lhs, RC:$rhs)), bb:$dst)` | `(BGEU  RC:$rhs, RC:$lhs, bb:$dst)` |
+|      | `(brcond (i32 (setge RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BGE RC:$lhs, RC:$rhs, bb:$dst)`   |
+|      | `(brcond (i32 (setuge RC:$lhs, RC:$rhs)), bb:$dst)` | `(BGEU RC:$lhs, RC:$rhs, bb:$dst)`  |
+|      | `(brcond RC:$cond, bb:$dst)`                        | `(BNE RC:$cond, ZEROReg, bb:$dst)`  |
+
+​		上表中第1、2种和最后一种IR DAG来自于条件判断语句只有一个操作数的情况，例如`if(cond)`，此时相当于将cond与0比较，非零即是真。
+
+​		实际上，要匹配所有的IR DAG，只需要BNE和BEQ两种机器指令就够了，例如`(BLT RC:$lhs, RC:$rhs, bb:$dst)`，等价于`(BNE (SLT RC:$lhs, RC:$rhs), ZERO, bb:$dst)`。但是，精简指令集的设计不能仅考虑指令数的最小化，还应考虑在实际应用中的指令效率，倘若全部使用BNE/BEQ+SLT的模式，那岂不是每次条件分支也都需要至少两条指令，和J系列指令设计一样了。
+
+​		setune和setueq节点已经被很多前端抛弃了，并无用武之地，因为在等于和不等于的逻辑判断中，操作数的符号性质并不影响结果。但是出于后端设计应独立于前端的思想，此处仍然定义了它们的匹配规则，对于有符号等和无符号等，转换成的机器指令节点是一样的。
+
+​		无条件跳转语句的IR DAG十分简单，只有一种`(br bb:$addr)`，使用LoongArch无条件跳转指令B匹配即可。B指令为FmtI26格式，也属于间接跳转，跳转目标地址等于26位有符号偏移值逻辑左移2位后加上PC的值。
