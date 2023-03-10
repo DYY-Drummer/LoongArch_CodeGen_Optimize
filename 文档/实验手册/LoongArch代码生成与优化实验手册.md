@@ -2275,7 +2275,7 @@ SelectionDAG has 14 nodes:
 
 ​		从跳转条件分，跳转指令分为有条件跳转和无条件跳转，从跳转地址模式分，跳转指令分为使用绝对地址的直接跳转和使用相对偏移的间接跳转。
 
-​		可以看到，在IR DAG中，有条件跳转的节点为br_cc，无条件跳转的节点为br，“BasicBlock"代表可供跳转的代码块，我们需要做的就是在后端中实现这些IR 节点到机器指令节点的匹配模式。
+​		可以看到，在IR DAG中，有条件跳转的节点为br_cc，br_cc是内联汇编级别的表示，在IR DAG级别表示有条件跳转的节点为brcond。无条件跳转的节点为br，“BasicBlock"代表可供跳转的代码块，我们需要做的就是在后端中实现这些IR 节点到机器指令节点的匹配模式。
 
 ​		目前主流的分支跳转指令设计分为两大流派：1）以ARM和x86为代表的“J”系列跳转指令，如JMP，JNE，JEQ等。2）以Mips为代表的“B”系列跳转指令，如BEQ，BNE等。
 
@@ -2320,3 +2320,73 @@ SelectionDAG has 14 nodes:
 ​		setune和setueq节点已经被很多前端抛弃了，并无用武之地，因为在等于和不等于的逻辑判断中，操作数的符号性质并不影响结果。但是出于后端设计应独立于前端的思想，此处仍然定义了它们的匹配规则，对于有符号等和无符号等，转换成的机器指令节点是一样的。
 
 ​		无条件跳转语句的IR DAG十分简单，只有一种`(br bb:$addr)`，使用LoongArch无条件跳转指令B匹配即可。B指令为FmtI26格式，也属于间接跳转，跳转目标地址等于26位有符号偏移值逻辑左移2位后加上PC的值。
+
+
+
++ **LoongArchISelLowering.cpp**
+
+​		该类负责所有IR节点到目标机器节点的下降方法，此处需要为条件分支语句相关的节点提供下降方法。
+
+​		除了上面所说的以“BasicBlock”节点作为条件分支跳转地址的方式外，还有”JumpTable“节点和”BlockAddress“节点两种地址表示方式。这两者与第六章中用于计算全局变量地址的"Global_Offset_Table"节点本质上是一样的，都是代表程序中某一全局偏移表的地址，只是用途不一样。
+
+​		JumpTable是一张维护多个跳转地址的跳转表，通常来自于switch-case结构，跳转表可以嵌套,可以有多个入口。JumpTable在LLVM IR中和br_jt节点成对使用，DAG格式为`(br_jt chain, jumptable index, jumptable entry index)`，用于支持jumpTable形式的条件分支跳转。
+
+​		BlockAddress是基本块的地址，不是后端汇编代码中的基本块，而是前端代码中使用标签名显式定义的基本块。这种跳转形式来自于C语言中goto一类的命令（虽然使用goto的编程方式被强烈不建议使用），例如：
+
+```c
+  goto Label;
+Label:
+  return 1;
+```
+
+​		对于跳转操作节点（分支节点）br_cc、br_jt等，我们可以直接使用setOperationAction的Expand模式，利用LLVM内置提供的节点展开/替换方案来将它们扩展为我们已经支持的操作节点。
+
+​		对于跳转操作符节点（叶节点），使用setOperationAction的Custom模式自定义下降方法。其中BasicBlock节点已经实现原生支持，我们还需要为JumpTable和BlockAddress两种目的地址操作符提供下降方法。同第六章中的GlobalAddress的下降方法类似，若当前重定位模式为PIC模式，则将地址操作符节点传入getAddrLocal()方法处理；若为Static模式，则将地址操作符节点传入getAddrNonPIC()方法处理。
+
+
+
++ **LoongArchMCInstLower.cpp**
+
+​		LoongArchISelLowering类将条件分支跳转地址下降为了LoongArch符号节点，LoongArchInstLower类将这些符号节点进一步下降为汇编表达式。
+
+
+
++ **LoongArchMCCodeEmitter(.h/.cpp)**
+
+​		为16位的跳转地址（BEQ、BNE等）和26位的跳转地址（B、BL）选择重定位回填类型。
+
++ **MCTargetDesc/LoongArchFixupKinds.h**
+
+​		添加16位和26位跳转地址的回填类型。
+
++ **MCTargetDesc/LoongArchELFObjectWriter.cpp**
+
+​		将回填类型映射到LoongArch.def中定义的ELF重定位类型。
+
++ **MCTargetDesc/LoongArchAsmBackend.cpp**
+
+​		此处修复跳转指令地址计算中的一个细节。
+
+​		如1.1.4节中介绍的LoongArch指令运行的5阶段流水线设计：指令获取、指令解码、执行、内存访问和写回，对于跳转指令，显然在获取它之前，指令中的跳转地址已经根据重定位信息计算出了具体的值回填到了指令里。如下图所示，以B指令为例，B指令中的$BB0_2在重定位之后会被解析为该相对PC的偏移地址，即(X+16) - X = 16字节。此时问题就来了，程序计数器PC在“指令获取”之后就会将PC+4（字节）以指向下一条指令，此时PC=X+4，当B指令执行时，PC=PC+16=X+20，指向的是BB0_2块的第二条指令nop而不是第一条指令。为了修正这一偏差，我们需要在adjustFixupValue()方法中手动将分支跳转指令的重定位地址值-4。
+
+![跳转指令PC-4](跳转指令PC-4.PNG)
+
+​		笔者认为此类地址计算偏差不应归咎于目标机器架构的指令设计，这是LLVM在转换前端地址表达式时独立于实际目标机器的运行细节而导致的。
+
++ **编译测试**
+
+​		使用附录中的第七章/7-1/test.c测试if、switch、for、while、continue、break、goto条件分支语句的目标代码生成。
+
+
+
+## 7.2 长分支跳转
+
+​		在7.1节中我们使用B系列跳转指令实现了条件分支控制，但是相比J系列跳转指令，B系列指令中的偏移值仅能容纳16位数，如果目的地址相对偏移大于16位将会出错（例如if块内程序特别多）。本节将为条件分支跳转目的地址较长的情况提供解决方案。
+
+
+
++ **LoongArch.h**
+
+​		添加长分支跳转处理的Pass
+
++ **LoongArchAsmPrinter(.h/cpp)**
