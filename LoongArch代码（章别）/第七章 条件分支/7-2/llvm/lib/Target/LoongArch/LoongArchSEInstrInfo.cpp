@@ -146,6 +146,10 @@ unsigned LoongArchSEInstrInfo::getOppositeBranchOpc(unsigned Opc) const {
         default:           llvm_unreachable("Illegal opcode!");
         case LoongArch::BEQ:    return LoongArch::BNE;
         case LoongArch::BNE:    return LoongArch::BEQ;
+        case LoongArch::BLT:    return LoongArch::BGE;
+        case LoongArch::BGE:    return LoongArch::BLT;
+        case LoongArch::BLTU:    return LoongArch::BGEU;
+        case LoongArch::BGEU:    return LoongArch::BLTU;
     }
 }
 

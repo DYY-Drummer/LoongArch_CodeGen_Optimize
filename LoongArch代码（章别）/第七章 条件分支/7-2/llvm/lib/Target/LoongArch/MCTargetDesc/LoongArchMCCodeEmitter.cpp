@@ -143,7 +143,7 @@ getJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
     assert(MO.isExpr() && "getJumpTargetOpValue expects only expressions");
 
     const MCExpr *Expr = MO.getExpr();
-    if (Opcode == LoongArch::B)
+    if (Opcode == LoongArch::B|| Opcode == LoongArch::BL)
         Fixups.push_back(MCFixup::create(0, Expr,
                                          MCFixupKind(LoongArch::fixup_LoongArch_PC26)));
     else

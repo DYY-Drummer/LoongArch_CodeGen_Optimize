@@ -11,6 +11,7 @@
 #include "MCTargetDesc/LoongArchBaseInfo.h"
 #include "MCTargetDesc/LoongArchFixupKinds.h"
 #include "MCTargetDesc/LoongArchMCTargetDesc.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCExpr.h"
@@ -56,8 +57,8 @@ unsigned LoongArchELFObjectWriter::getRelocType(MCContext &Ctx,
     Type = ELF::R_LOONGARCH_32;
     break;
   case FK_GPRel_4:
-          Type = ELF::R_LOONGARCH_GPREL32;
-          break;
+    Type = ELF::R_LOONGARCH_GPREL32;
+    break;
   case LoongArch::fixup_LoongArch_32:
     Type = ELF::R_LOONGARCH_32;
     break;
@@ -104,6 +105,7 @@ LoongArchELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
   default:
     return true;
 
+  case ELF::R_LOONGARCH_GOT16:
   case ELF::R_LOONGARCH_GOT12:
   // For LoongArch pic mode, I think it's OK to return true but I didn't confirm.
   //  llvm_unreachable("Should have been handled already");
@@ -121,6 +123,7 @@ LoongArchELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
   case ELF::R_LOONGARCH_32:
     return true;
 
+  case ELF::R_LOONGARCH_GPREL16:
   case ELF::R_LOONGARCH_GPREL12:
     return false;
   }

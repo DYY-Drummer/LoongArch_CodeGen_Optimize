@@ -525,7 +525,7 @@ extern "C" void LLVMInitializeLoongArchTargetInfo() {
 
 然后使用ninja命令开始编译：`ninja -j4`
 
-`-j4`选项为指定最大同时运行指令数为4（内存小的系统建议调小），第一次编译大概率会遇到语法报错，修复后再次执行`ninja -j4`，即可自动从出错的步骤开始继续编译。
+`-j4`选项为指定最大同时运行指令数为4（内存小的系统建议调小），第一次编译大概率会遇到语法报错，修复后再次执行`ninja -j4`，即可自动从出错的步骤开始继续编译。如果更改了CMakeList，则需要重新执行cmake命令生成编译初始化设定文件，否则直接执行ninja会报错找不到原来的那个文件。
 
 如果你的机器性能不够理想，请考虑使用下列选项优化编译效率
 
@@ -1341,7 +1341,7 @@ int main()
 -filter-view-dags:可以只打印基本块
 ```
 
-​		不过，使用Graphviz选项运行llc命令，只有在你的后端能正常生成完整的.s文件的前提下，才能生成正常的.dot文件，否则会生成损坏的.dot文件。如果你是因为某个指令处理不当导致.s文件生成失败而想查看失败前的DAG选择情况，请配合GDB工具，在异常中断前的某个节点处打上断点，然后通过 `print CurDAG->viewGraph()`来生成.dot文件。
+​		不过，使用Graphviz选项运行llc命令，只有在你的后端能正常生成完整的.s文件的前提下，才能生成正常的.dot文件，否则会生成损坏的.dot文件。如果你是因为某个指令处理不当导致.s文件生成失败而想查看失败前的DAG选择情况，请配合GDB工具，在异常中断前的某个节点处打上断点，然后通过 `print CurDAG->viewGraph()`来生成.dot文件（不过有些时候调用不到CurDAG）。
 
 
 
@@ -2329,7 +2329,7 @@ SelectionDAG has 14 nodes:
 
 ​		除了上面所说的以“BasicBlock”节点作为条件分支跳转地址的方式外，还有”JumpTable“节点和”BlockAddress“节点两种地址表示方式。这两者与第六章中用于计算全局变量地址的"Global_Offset_Table"节点本质上是一样的，都是代表程序中某一全局偏移表的地址，只是用途不一样。
 
-​		JumpTable是一张维护多个跳转地址的跳转表，通常来自于switch-case结构，跳转表可以嵌套,可以有多个入口。JumpTable在LLVM IR中和br_jt节点成对使用，DAG格式为`(br_jt chain, jumptable index, jumptable entry index)`，用于支持jumpTable形式的条件分支跳转。
+​		JumpTable是一张维护多个跳转地址的跳转表，通常来自于switch-case结构，跳转表可以嵌套,可以有多个入口。LLVM设置的最小跳转表入口数为4，即当switch内少4个case分支时，LLVM会将其下降为一系列类似if-else结构的跳转分支，当case分支大于等于4个时，LLVM才会将其下降为JumpTable。JumpTable在LLVM IR中和BR_JT节点成对使用，DAG格式为`(br_jt chain, jumptable index, jumptable entry index)`，用于支持jumpTable形式的条件分支跳转。
 
 ​		BlockAddress是基本块的地址，不是后端汇编代码中的基本块，而是前端代码中使用标签名显式定义的基本块。这种跳转形式来自于C语言中goto一类的命令（虽然使用goto的编程方式被强烈不建议使用），例如：
 
@@ -2387,6 +2387,54 @@ Label:
 
 + **LoongArch.h**
 
-​		添加长分支跳转处理的Pass
+​		添加创建长分支跳转处理Pass的接口
 
-+ **LoongArchAsmPrinter(.h/cpp)**
++ **LoongArchLongBranch.cpp**
+
+​		长分支跳转处理Pass的核心描述类。添加了激活长分支跳转Pass的命令行选项`-force-loongarch-long-branch` ，使用该选项会强制将所有的普通分支跳转语句转换为长分支跳转的处理方式，目前还无法实现根据某个条件分支跳转地址的长度决定是否使用长分支跳转模式，主要出于两个原因：1）分支跳转中的地址值需要在重定位阶段（加载时或链接时）回填后才能知道，在MC层是无法获取的，因而无法判断地址长度。2）在LLVM架构中只有MC层及以上才能更改指令序列（如更改DAG结构或插入机器指令）当重定位回填完成时，已经到了指令编码输出阶段，此时发射的指令序列已经固定，无法更改。
+
+​		以如下代码片段为例，在原先的分支跳转判断逻辑中，若if条件为真则顺势执行当前指令序列的下一条指令，即进入紧接着当前指令的if的大括号中的基本块；若if条件为假，则跳过这个基本块。那么显然超长分支跳转地址应该出自于条件为假需要跳到远处的基本块的情况。
+
+```c
+if (a < b)
+	result = 1;
+return result;
+```
+
+​		如下图，进入到汇编代码层面来看，后端会将“a<b”翻译为使用BGE的"a>=b"，若成立则跳到BB0_3基本块，跳过了if内程序块，若不成立则不执行跳转，顺序执行下一个基本块条件分支指令，即执行`result=1`。这种模式下，倘若if块内代码特别长，BB0_2基本块就特别大，那么从BGE指令到BB0_3的地址偏移就会超过16-bit。实现长分支跳转的思路为：将条件分支指令需要跳转的地址嫁接到JR指令上，使用32位寄存器加载偏移值。为此，我们需要：
+
+​		1）将原先的条件分支指令替换为与其相反的指令，例如将BLT替换为BGE，并将指令中的跳转目标基本块替换为if内的基本块BB0_3，以保证程序语义不变。
+
+​		2）在条件分支指令和BB0_3之间插入一个新的基本块BB0_2，在BB0_2内负责加载BB0_4（if基本块的下一个基本块）的绝对地址并使用JR指令跳转到BB0_4基本块。
+
+​		3）在BB0_2之前插入指令序列，用于计算从BB0_2到跳过if基本块的下一个基本块BB0_4之间的32位偏移值，即%hi(.BB0_4-.BB0_2)和%lo(.BB0_4-.BB0_2)，存放在寄存器r21中。
+
+​		4）使用BL指令跳转到BB0_2基本块，因为BL指令除了跳转到目标地址外，还会将当前指令的PC+4的值存放到寄存器r1中，也就是BB0_2的地址。这样在BB0_2基本块中，我们只需将r1和r21相加，就能得到BB0_4的绝对地址，提供给JR指令进行跳转。
+
+​		如此一来，既可以保证if为假时，需要跳过if基本块，目标基本块的地址的最大长度能增加到32-bit；且if为真时，if基本块就在我们新插入的BB0_2基本块后，条件分支指令的16位地址长度肯定足够。
+
+```assembly
+	bge	$r4, $r5, $BB0_3	# r4 = a, r5 = b
+	b	$BB0_2
+$BB0_2:
+	# result = 1
+	b	$BB0_3
+$BB0_3:
+	# return result
+```
+
++ **LoongArchSEInstrInfo(.h/.cpp)**
+
+​		添加获取相反条件分支指令的方法。
+
++ **LoongArchTargetMachine.cpp**
+
+​		覆盖LLVM的addPreEmitPass()，注册长分支跳转处理Pass，用于在机器指令代码发射前执行该Pass。
+
++ **编译测试**
+
+  使用长分支跳转选项编译：
+
+  `./llc -march=loongarch -mcpu=loongarch32 -relocation-model=pic -filetype=asm`
+
+`-force-loongarch-long-branch test.bc -o test.s`

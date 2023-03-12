@@ -314,7 +314,8 @@ void LoongArchLongBranch::expandToLongBranch(MBBInfo &I) {
       .addReg(LoongArch::SP).addImm(8);
 
     MIBundleBuilder(*BlTgtMBB, Pos)
-      .append(BuildMI(*MF, DL, TII->get(LoongArch::JIRL)).addReg(LoongArch::ZERO).addReg(LoongArch::R21).addImm(0))
+      .append(BuildMI(*MF, DL, TII->get(LoongArch::JIRL), LoongArch::ZERO)
+                .addReg(LoongArch::R21).addImm(0))
       .append(BuildMI(*MF, DL, TII->get(LoongArch::NOP)));
 
     assert(LongBrMBB->size() + BlTgtMBB->size() == LongBranchSeqSize);
@@ -338,9 +339,11 @@ void LoongArchLongBranch::expandToLongBranch(MBBInfo &I) {
     assert(I.Br->getDesc().getNumOperands() == 1);
     I.Br->RemoveOperand(0);
     I.Br->addOperand(MachineOperand::CreateMBB(LongBrMBB));
-  } else
-    // Change branch destination and reverse condition.
-    replaceBranch(*MBB, I.Br, DL, &*FallThroughMBB);
+  } else{
+      // Change branch destination and reverse condition.
+      replaceBranch(*MBB, I.Br, DL, &*FallThroughMBB);
+  }
+
 }
 
 static void emitGPDisp(MachineFunction &F, const LoongArchInstrInfo *TII) {

@@ -338,8 +338,7 @@ let hasDelaySlot = 0;
 //@JumpFR {
 let isBranch=1, isTerminator=1, isBarrier=1, imm16=0, hasDelaySlot = 1,
     isIndirectBranch = 1 in
-class JumpFR<bits<6> op, string instr_asm, SDNode OpNode,
-             Operand Od, PatLeaf imm_type, RegisterClass RC>:
+class JumpFR<bits<6> op, string instr_asm, RegisterClass RC>:
     Fmt2RI16<op, (outs), (ins RC:$rj),
      !strconcat(instr_asm, "\t$rj"), [(brind RC:$rj)], IIBranch> {
   let rd = 0;
@@ -349,7 +348,7 @@ class JumpFR<bits<6> op, string instr_asm, SDNode OpNode,
 
 
 // Return
-class RetBase<RegisterClass regClass> : JumpFR<0b010011, "jr", add, simm16, immSExt16, regClass> {
+class RetBase<RegisterClass regClass> : JumpFR<0b010011, "jr", regClass> {
     let isReturn = 1;
     let isCodeGenOnly = 1;
     let hasCtrlDep = 1;
@@ -474,7 +473,7 @@ def BGEU     : CBranch16<0b011011, "bgeu", setuge, GPROut>;
 }
 def B     : UncondBranch<0b010100, "b">;
 
-//@ long branch support //1
+//@ long branch support
 let isBranch = 1, isTerminator = 1, isBarrier = 1,
     hasDelaySlot = 0, Defs = [RA] in
 def BL: FmtI26<0b010101, (outs), (ins jmptarget:$addr), "bl\t$addr", [], IIBranch>,
@@ -482,7 +481,7 @@ def BL: FmtI26<0b010101, (outs), (ins jmptarget:$addr), "bl\t$addr", [], IIBranc
 
 def JIRL     : Fmt2RI16<0b010011, (outs GPROut:$rd), (ins GPR:$rj, simm16:$imm16), "jirl", [], IIBranch>;
 def RET      : RetBase<GPROut>;
-
+def JR       : JumpFR<0b010011, "jr", GPROut>;
 /// sext and zext
 def EXT_W_B : EXT<0b0000000000000000010111, "ext.w.b", GPR>;
 def EXT_W_H : EXT<0b0000000000000000010110, "ext.w.h", GPR>;
