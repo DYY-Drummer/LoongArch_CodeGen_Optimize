@@ -33,14 +33,23 @@ namespace  LoongArch {
     // Pure lower 12 bit fixup resulting in - R_LOONGARCH_LO12.
     fixup_LoongArch_LO12,
 
-    // 16 bit fixup for GP offest resulting in - R_LOONGARCH_GPREL16.
+    // 12 bit fixup for GP offest resulting in - R_LOONGARCH_GPREL12.
+    fixup_LoongArch_GPREL12,
+
+    // 12 bit fixup for GP offest resulting in - R_LOONGARCH_GPREL12.
     fixup_LoongArch_GPREL16,
 
     // GOT (Global Offset Table)
-    // Symbol fixup resulting in - R_LOONGARCH_GOT20.
+    // Symbol fixup resulting in - R_LOONGARCH_GOT12.
     fixup_LoongArch_GOT,
 
-    
+    // PC relative branch fixup resulting in - R_LOONGARCH_PC16.
+    // LoongArch PC16, e.g. BEQ
+    fixup_LoongArch_PC16,
+
+    // PC relative branch fixup resulting in - R_LOONGARCH_PC26.
+    // LoongArch PC26, e.g. B, BL
+    fixup_LoongArch_PC26,
 
     // resulting in - R_LOONGARCH_GOT_HI20
     fixup_LoongArch_GOT_HI20,

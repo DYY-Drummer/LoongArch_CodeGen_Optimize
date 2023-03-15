@@ -1432,9 +1432,7 @@ gdb ./llc
 
 set args -march=loongarch -relocation-model=pic -filetype=asm test.bc -o test.s
 
-进入到lib/MC
-
-break MCSubtargetInfo.cpp:206
+break [llvm/lib/Target/LoongArch/LoongArchSubtargetInfo.cpp:206]
 
 回到bin目录下
 
@@ -1452,7 +1450,10 @@ run
 
 输入backtrace可查看当前调用函数的堆栈列表和所有父函数，检查是否一直困在某个父函数里。
 
-Node->dump()可打印出当前节点的易读信息
++ Node->dump()可打印出当前节点的易读信息.
++ MachineOperand.getParent()，MachineOperand.getParent()->getParent()可分别获取到该操作数所处的MachineInstr，该指令所处的BasicBlock，再使用dump()可打印出详细信息（如BasicBlock内所有的指令）。
+
+
 
 + 可用如下指令分别统计所有.cpp,.td,.h,.txt文件的行数
 
@@ -2545,4 +2546,66 @@ $BB0_5:
 
 ​		使用7-4/test.c进行测试。
 
-​		通过clang指令生成.ll文件，可以看到，当不指定优化选项时（默认O0），test_select_global()函数内的if-else结构被解析成了分支跳转，当指定O1优化选项时，if-else结构被解析成了一条select指令，没有创建BasicBlock。但是在两种优化级别下，三目运算符`?:`均被解析为了select。
+​		通过clang指令生成.ll文件，可以看到，当不指定优化选项时（默认O0），test_select_global()函数内的if-else结构被解析成了分支跳转，当指定O1优化选项时，if-else结构被解析成了一条select指令，没有创建BasicBlock。但是在两种优化级别下，三目运算符`?:`均被解析为了select。特别地，在O1优化下，测试程序的test_seletc()中的不可到达分支被删去，可观地减少了汇编文件的指令数量。
+
+​		在条件分支中，经常会出现类似“根据不同条件赋予变量不同值”的情况，由于LLVM IR的SSA单赋值的特性，IR需要为每个条件块内的赋值语句创建不同的变量别名，且为其值开辟栈空间，把所有备选项都存放到内存中，最后再根据条件判断的情况选择读取其中的某个值赋予变量。这种处理方式使得每个条件分支的赋值语句都需要访问一次内存，指令效率极低。为了解决这个问题，LLVM IR使用了Phi节点，它可以直接引用条件分支基本块内的目标变量的多个别名，无需放入内存，避免了内存访问，如：`%a = phi i32 [ %name_1, %if.then2 ], [ %name_2, %if.else3 ], [ 1, %entry ]`。不过，Phi节点只有在Clang O3级别的优化下才会生成，本文尚未实现支持，关于Phi节点的更多信息请参考[此处](Section 8.11 of Muchnick, Steven S. (1997). Advanced Compiler Design and Implementation. Morgan Kaufmann. ISBN 1-55860-320-4.)。
+
+​		
+
+# 第八章 函数调用
+
+​		本章将实现函数调用相关的后端支持，是任务量较大的一部分。本章将从LoongArch的栈帧结构开始讲起，因为函数调用的首要工作就是管理栈帧，之后实现函数参数的传入和传出，函数返回，最后对尾调用（tail call）进行优化。本章涉及的参数和返回值均默认为整数值。
+
+
+
+## 8.1 LoongArch栈帧结构
+
+​		虽然不同的指令集架构运行在不同的CPU上，但是使用RISC指令集的CPU的栈帧组织方式都惊人的相似，本节将简要介绍后端代码编写所需要的LoongArch栈帧结构的部分内容，完整说明请参阅[龙芯架构ABI文档]()。
+
+​		LoongArch函数调用过程中栈的数据结构如下图所示。LoongArch的栈向下增长，以16字节对齐，子函数参数位于当前栈帧的顶部（低地址处）。函数传参的传递方式有两种：保存在栈中或保存在参数专用保留寄存器中。LoongArch ELF ABI中将通用寄存器中的a0-a7都归为了参数寄存器，a0-a1同时也作为函数返回值寄存器，这两者并不冲突，因为函数返回值会在函数调用临结束前才保存到返回值寄存器中，而函数调用结束时函数参数的声明周期也就结束了。LoongArch后端中将前8个函数参数保存在参数寄存器中，超过8个的剩余参数保存在调用者的栈中。
+
+​		![LoongArch栈帧结构](LoongArch栈帧结构.png)
+
+​		需要注意的是，虽然前8个参数的值保存在参数寄存器中，不用赋值到栈空间内，但是编译器仍会为其在调用者栈中为每个（整数）参数寄存器预留4字节的空间，最多32字节。因为编译器无法预判这8个参数寄存器是否会在接下来的调用过程中被占用，例如被调用者再次调用子函数时，此时就需要将参数寄存器中的值保存在预留的栈空间内，等待子函数返回时恢复。
+
+​		
+
+## 8.2 从栈帧中读取参数
+
+​		在第2.5节中我们已经实现了一部分栈帧管理的功能，例如函数头和函数尾，以及减小旧SP开辟栈空间等，为了支持函数调用，我们还需要实现参数传递机制。
+
++ **LoongArchISelLowering(.h/.cpp)**
+
+​		添加函数传参相关信息的接口：是否有值传递参数，参数寄存器的大小，可使用的参数寄存器的数量，是否允许尾调用优化。
+
+​		实现了两种参数传递的约束：一种基于ILP32S的，使用8个整数参数寄存器以及栈传参的约束CC_LoongArchILP32S；一个用于调试后端的，只使用栈来传递参数的CC_LoongArch_Stack_only。CC_LoongArchILP32S允许将64位整数和浮点数格式的参数存放在参数寄存器中，但是不能将64位参数的上半部分和下半部分分开存在寄存器和栈中，所以需要保证至少有两个参数寄存器可供分配，即当可分配的参数寄存器只剩A7时（参数寄存器是顺序分配的），放弃A7，将64位参数和剩余参数全部存放在栈中。如果不放弃A7，而是将其分配给后面的32位参数，将会打乱默认的参数存储顺序，需要额外的指令逻辑维护这个特别的参数地址对应关系，得不偿失。
+
+​		回想第五章中我们为全局变量的IR节点处理下降的操作，当LLC遇见全局变量节点时，就会调用LowerOperation()方法选取下降途径，即LowerGlobalAddress()。函数参数的下降也是如此，当LLC遇到函数调用时就会创建一个函数调用约定类LoongArchCC的对象，传入当前ABI信息，在LoongArchCC的构造函数中首先就会调用reservedArgArea()方法，为8个参数寄存器预开辟32字节的栈空间。之后触发函数参数下降的核心处理函数LowerFormalArguments()，将CCInfo中的参数数量，每个参数的位置等信息加载到参数数组ArgLocs[]中，遍历所有参数。对于保存在寄存器中的参数，使用LLVM MachineFunction 类的内置方法addLivein()将该参数寄存器标记为“Live-in"，并为物理寄存器创建对应的虚拟寄存器（DAG中的寄存器都是虚拟寄存器）；对于保存在栈中的参数，生成load节点插入DAG中用于读取。
+
+​		“Live-in"和"Live-out"标记是用于判断寄存器在某点是否活跃的依据，简单来讲，若一个寄存器进入一个函数时是活跃的，那么它就是live-in，若一个寄存器在退出函数后是活跃的，那么他就是live-out，这在后续进行活跃性分析的时候会用到。
+
+​		实现了当调用过程中需要占用参数寄存器时，将参数寄存器的值保存到栈中的方法copyByValRegs()。保存地址相对栈底的偏移值的计算方式为：`参数寄存器预留空间大小 - （参数寄存器总数 - 该参数寄存器序号） * 参数寄存器的大小`，对于ILP32S，就是`32-(8-寄存器序号)*4`。计算好偏移值后就为其生成store节点插入DAG中。
+
+
+
++ **编译测试**
+
+​		测试文件及输出在/调试输出/8-2目录下。使用具有9个参数的main函数来测试函数传参功能，由于此时还未实现函数返回控制所以无法使用子函数来测试。查看输出的汇编代码test.s可以看到，前八个参数从a0-a7（即r4-r11）中加载。第9个参数从内存中SP+80的位置加载，当前栈空间为48字节，SP+48往上是上一层的调用者栈帧，SP+80正是旧SP加上参数寄存器预留空间（32字节）后的剩余参数的地址。
+
+## 8.3		
+
++ **LoongArchISelLowering(.h/.cpp)**
+
+  函数调用下降方法LowerCall()
+
+​		
+
+# 参考文献
+
++ Computer Organization and Design: The Hardware/Software Interface (The Morgan Kaufmann Series in Computer Architecture and Design)
+
++ Computer Architecture: A Quantitative Approach (The Morgan Kaufmann Series in Computer Architecture and Design)
+
++ ARM System Developer’s Guide: Designing and Optimizing System Software (The Morgan Kaufmann Series in Computer Architecture and Design).
+
++ Compilers: Principles, Techniques, and Tools (2nd Edition)
