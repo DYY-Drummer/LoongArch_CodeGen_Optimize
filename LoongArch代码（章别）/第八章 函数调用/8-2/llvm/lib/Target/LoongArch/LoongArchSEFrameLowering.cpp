@@ -112,36 +112,6 @@ void LoongArchSEFrameLowering::emitEpilogue(MachineFunction &MF,
     TII.adjustStackPtr(SP, StackSize, MBB, MBBI);
 }
 
-bool LoongArchSEFrameLowering::
-spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-                          MachineBasicBlock::iterator MI,
-                          ArrayRef<CalleeSavedInfo> CSI,
-                          const TargetRegisterInfo *TRI) const {
-    MachineFunction *MF = MBB.getParent();
-    MachineBasicBlock *EntryBlock = &MF->front();
-    const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
-
-    for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
-        // Add the callee-saved register as live-in. Do not add if the register is
-        // RA and return address is taken, because it has already been added in
-        // method LoongArchTargetLowering::LowerReturnAddr.
-        // It's killed at the spill, unless the register is RA and return address
-        // is taken.
-        unsigned Reg = CSI[i].getReg();
-        bool IsRAAndRetAddrIsTaken = (Reg == LoongArch::RA)
-                                     && MF->getFrameInfo().isReturnAddressTaken();
-        if (!IsRAAndRetAddrIsTaken)
-            EntryBlock->addLiveIn(Reg);
-
-        // Insert the spill to the stack frame.
-        bool IsKill = !IsRAAndRetAddrIsTaken;
-        const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
-        TII.storeRegToStackSlot(*EntryBlock, MI, Reg, IsKill,
-                                CSI[i].getFrameIdx(), RC, TRI);
-    }
-
-    return true;
-}
 
 const LoongArchFrameLowering *llvm::createLoongArchSEFrameLowering(const LoongArchSubtarget
                                                          &ST) {

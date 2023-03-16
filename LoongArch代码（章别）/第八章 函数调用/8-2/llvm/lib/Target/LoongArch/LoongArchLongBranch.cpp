@@ -256,7 +256,7 @@ void LoongArchLongBranch::expandToLongBranch(MBBInfo &I) {
     LongBrMBB->addSuccessor(BlTgtMBB);
     BlTgtMBB->addSuccessor(TgtMBB);
 
-    unsigned BlOp = LoongArch::BAL;
+    unsigned BlOp = LoongArch::BL;
 
     // $longbr:
     //  addi.w $sp, $sp, -8
@@ -282,7 +282,7 @@ void LoongArchLongBranch::expandToLongBranch(MBBInfo &I) {
       .addReg(LoongArch::SP).addImm(0);
 
     // LU12I_W and ADDI_W instructions create 32-bit offset of the target basic
-    // block from the target of BAL instruction.  We cannot use immediate
+    // block from the target of BL instruction.  We cannot use immediate
     // value for this offset because it cannot be determined accurately when
     // the program has inline assembly statements.  We therefore use the
     // relocation expressions %hi($tgt-$bltgt) and %lo($tgt-$bltgt) which

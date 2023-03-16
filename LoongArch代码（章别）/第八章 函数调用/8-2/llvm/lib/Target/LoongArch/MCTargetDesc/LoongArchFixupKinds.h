@@ -51,9 +51,6 @@ namespace  LoongArch {
     // LoongArch PC26, e.g. B, BL
     fixup_LoongArch_PC26,
 
-    // resulting in - R_LOONGARCH_CALL16.
-    fixup_LoongArch_CALL16,
-
     // resulting in - R_LOONGARCH_GOT_HI20
     fixup_LoongArch_GOT_HI20,
 
