@@ -68,6 +68,9 @@ unsigned LoongArchELFObjectWriter::getRelocType(MCContext &Ctx,
   case LoongArch::fixup_LoongArch_GPREL16:
           Type = ELF::R_LOONGARCH_GPREL16;
     break;
+  case LoongArch::fixup_LoongArch_CALL16:
+          Type = ELF::R_LOONGARCH_CALL16;
+    break;
   case LoongArch::fixup_LoongArch_GOT:
     Type = ELF::R_LOONGARCH_GOT20;
     break;

@@ -11,7 +11,11 @@
 //class SDTypeProfile<int numresults, int numoperands, list<SDTypeConstraint> constraints>
 def SDT_LoongArchRet          : SDTypeProfile<1, 2, [SDTCisInt<0>]>;
 
-
+// Call
+def SDT_LoongArchJmpLink      : SDTypeProfile<0, 1, [SDTCisVT<0, iPTR>]>;
+def LoongArchJmpLink : SDNode<"LoongArchISD::JmpLink",SDT_LoongArchJmpLink,
+        [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
+                SDNPVariadic]>;
 // Hi and Lo nodes are used to handle global addresses. Used on
 // LoongArchISelLowering to lower stuff like GlobalAddress, ExternalSymbol
 // static model.
@@ -34,6 +38,15 @@ def DisableOverflow : Predicate<"Subtarget->disableOverflow()">;
 def HasSlt          : Predicate<"Subtarget->hasSlt()">;
 
 def RelocPIC        : Predicate<"TM.getRelocationModel() == Reloc::PIC_">;
+
+class IsTailCall {
+    bit isCall = 1;
+    bit isTerminator = 1;
+    bit isReturn = 1;
+    bit isBarrier = 1;
+    bit hasExtraSrcRegAllocReq = 1;
+    bit isCodeGenOnly = 1;
+}
 //===----------------------------------------------------------------------===//
 // Instruction format superclass
 //===----------------------------------------------------------------------===//
@@ -61,6 +74,7 @@ include "LoongArchFloatInstrInfo.td"
 class LoongArchInstAlias<string Asm, dag Result, bit Emit = 0b1> :
 InstAlias<Asm, Result, Emit>;
 
+
 // B Series jump control, e.g. BEQ, BNE
 def brtarget16    : Operand<OtherVT> {
 let EncoderMethod = "getBranch16TargetOpValue";
@@ -70,6 +84,11 @@ let DecoderMethod = "DecodeBranch16Target";
 
 // jump target for Unconditional jump - B
 def jmptarget    : Operand<OtherVT> {
+let EncoderMethod = "getJumpTargetOpValue";
+let OperandType = "OPERAND_PCREL";
+}
+
+def calltarget  : Operand<iPTR> {
 let EncoderMethod = "getJumpTargetOpValue";
 let OperandType = "OPERAND_PCREL";
 }
@@ -297,7 +316,6 @@ Fmt2RI16<op, (outs), (ins RC:$rj, RC:$rd, brtarget16:$imm16),
 Requires<[HasSlt]> {
 let isBranch = 1;
 let isTerminator = 1;
-let hasDelaySlot = 1;
 let Defs = [R21];
 }
 
@@ -332,11 +350,10 @@ FmtI26<op, (outs), (ins jmptarget:$addr),
 let isBranch = 1;
 let isTerminator = 1;
 let isBarrier = 1;
-let hasDelaySlot = 0;
 }
 
 //@JumpFR {
-let isBranch=1, isTerminator=1, isBarrier=1, imm16=0, hasDelaySlot = 1,
+let isBranch=1, isTerminator=1, isBarrier=1, imm16=0,
     isIndirectBranch = 1 in
 class JumpFR<bits<6> op, string instr_asm, RegisterClass RC>:
     Fmt2RI16<op, (outs), (ins RC:$rj),
@@ -353,6 +370,33 @@ class RetBase<RegisterClass regClass> : JumpFR<0b010011, "jr", regClass> {
     let isCodeGenOnly = 1;
     let hasCtrlDep = 1;
     let hasExtraSrcRegAllocReq = 1;
+}
+
+// Jump and Link (Call)
+let isCall=1 in {
+class JumpLink<bits<6> op, string instr_asm>:
+FmtI26<op, (outs), (ins calltarget:$target, variable_ops),
+!strconcat(instr_asm, "\t$target"), [(LoongArchJmpLink imm:$target)],
+IIBranch> {
+}
+
+class JumpLinkReg<RegisterClass RC>:
+    LoongArchPseudo<(outs), (ins RC:$rj, variable_ops), "",
+                    [(LoongArchJmpLink RC:$rj)], IIBranch> {
+}
+}
+
+// @TailCall
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1,
+        hasExtraSrcRegAllocReq = 1, Defs = [RA] in {
+class TailCall<Instruction JumpInst> :
+        LoongArchPseudo<(outs), (ins calltarget:$target), [], IIBranch>,
+PseudoInstExpansion<(JumpInst jmptarget:$target)>;
+
+class TailCallReg<RegisterClass RO, Instruction JRInst,
+        RegisterClass ResRO = RO> :
+LoongArchPseudo<(outs), (ins RO:$rs), [(LoongArchTailCall RO:$rs)], IIBranch>,
+PseudoInstExpansion<(JRInst ResRO:$rs)>;
 }
 
 // Count Leading Ones/Zeros in Word
@@ -471,15 +515,22 @@ def BGEU     : CBranch16<0b011011, "bgeu", setuge, GPROut>;
 }
 def B     : UncondBranch<0b010100, "b">;
 
-//@ long branch support
+// Branch and Link - Long branch support(acctually BL)
 let isBranch = 1, isTerminator = 1, isBarrier = 1,
     hasDelaySlot = 0, Defs = [RA] in
-def BL: FmtI26<0b010101, (outs), (ins jmptarget:$addr), "bl\t$addr", [], IIBranch>,
+def BAL: FmtI26<0b010101, (outs), (ins jmptarget:$addr), "bl\t$addr", [], IIBranch>,
             Requires<[HasSlt]>;
 
 def JIRL     : Fmt2RI16<0b010011, (outs GPROut:$rd), (ins GPR:$rj, simm16:$imm16), "jirl", [], IIBranch>;
 def RET      : RetBase<GPROut>;
 def JR       : JumpFR<0b010011, "jr", GPROut>;
+
+// call with Label
+def BL      : JumpLink<0b010101, "bl">;
+// call with Register
+def JARA    : JumpLinkReg<GPROut>,
+              PseudoInstExpansion<(JIRL RA, GPROut:$rj, 0)>;
+
 /// sext and zext
 def EXT_W_B : EXT<0b0000000000000000010111, "ext.w.b", GPR>;
 def EXT_W_H : EXT<0b0000000000000000010110, "ext.w.h", GPR>;
@@ -512,7 +563,7 @@ let isCodeGenOnly = 1;
 }
 
 //use JIRL ZERO, RA, 0 to replace IR instruction "ret", since LoongArch doesn't have "ret" like Mips
-let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
+let isReturn=1, isTerminator=1, isBarrier=1, hasCtrlDep=1 in
   def RetRA  : LoongArchPseudo<(outs), (ins), "", [(LoongArchRet)]>;
 //                  ,PseudoInstExpansion<(JIRL ZERO, RA, 0)>;
 
@@ -694,3 +745,9 @@ def : Pat<(sext_inreg GPR:$rj, i16), (EXT_W_H GPR:$rj)>;
 // select
 def : Pat<(select GPR:$cond, GPR:$t, GPR:$f),
           (OR (MASKEQZ GPR:$t, GPR:$cond), (MASKNEZ GPR:$f, GPR:$cond))>;
+
+//call
+def : Pat<(LoongArchJmpLink (i32 tglobaladdr:$dst)),
+          (BL tglobaladdr:$dst)>;
+def : Pat<(LoongArchJmpLink (i32 texternalsym:$dst)),
+          (BL texternalsym:$dst)>;

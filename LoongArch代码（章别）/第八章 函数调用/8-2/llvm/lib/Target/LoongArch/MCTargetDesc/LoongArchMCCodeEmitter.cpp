@@ -143,7 +143,7 @@ getJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
     assert(MO.isExpr() && "getJumpTargetOpValue expects only expressions");
 
     const MCExpr *Expr = MO.getExpr();
-    if (Opcode == LoongArch::B|| Opcode == LoongArch::BL)
+    if (Opcode == LoongArch::BL || Opcode == LoongArch::B || Opcode == LoongArch::BAL)
         Fixups.push_back(MCFixup::create(0, Expr,
                                          MCFixupKind(LoongArch::fixup_LoongArch_PC26)));
     else
@@ -176,6 +176,9 @@ getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
         default: llvm_unreachable("Unsupported fixup kind for target expression!");
         case LoongArchMCExpr::LEK_GPREL:
             FixupKind = LoongArch::fixup_LoongArch_GPREL16;
+            break;
+        case LoongArchMCExpr::LEK_GOT_CALL:
+            FixupKind = LoongArch::fixup_LoongArch_CALL16;
             break;
         case LoongArchMCExpr::LEK_GOT:
             FixupKind = LoongArch::fixup_LoongArch_GOT;

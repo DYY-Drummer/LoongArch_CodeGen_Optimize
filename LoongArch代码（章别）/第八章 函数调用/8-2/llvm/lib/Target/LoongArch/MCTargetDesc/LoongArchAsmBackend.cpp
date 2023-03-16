@@ -41,6 +41,7 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
     return 0;
   case FK_GPRel_4:
   case FK_Data_4:
+  case LoongArch::fixup_LoongArch_CALL16:
   case LoongArch::fixup_LoongArch_LO12:
   case LoongArch::fixup_LoongArch_GOT_LO12:
     break;
@@ -138,6 +139,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_LoongArch_GOT",            0,     20,   0 },
     { "fixup_LoongArch_PC16",           0,     16,  MCFixupKindInfo::FKF_IsPCRel },
     { "fixup_LoongArch_PC26",           0,     26,  JSUBReloRec },
+    { "fixup_LoongArch_CALL16",         0,     16,   0 },
     { "fixup_LoongArch_GOT_HI20",       0,     20,   0 },
     { "fixup_LoongArch_GOT_LO12",       0,     12,   0 }
   };

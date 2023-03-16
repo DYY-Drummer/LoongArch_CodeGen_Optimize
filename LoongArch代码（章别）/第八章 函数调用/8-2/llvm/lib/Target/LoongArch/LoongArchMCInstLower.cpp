@@ -42,6 +42,9 @@ MCOperand LoongArchMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
         case LoongArch::MO_GPREL:
             TargetKind = LoongArchMCExpr::LEK_GPREL;
             break;
+        case LoongArch::MO_GOT_CALL:
+            TargetKind = LoongArchMCExpr::LEK_GOT_CALL;
+            break;
         case LoongArch::MO_GOT:
             TargetKind = LoongArchMCExpr::LEK_GOT;
             break;
@@ -71,6 +74,10 @@ MCOperand LoongArchMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
 
         case MachineOperand::MO_BlockAddress:
             Symbol = AsmPrinter.GetBlockAddressSymbol(MO.getBlockAddress());
+            Offset += MO.getOffset();
+            break;
+        case MachineOperand::MO_ExternalSymbol:
+            Symbol = AsmPrinter.GetExternalSymbolSymbol(MO.getSymbolName());
             Offset += MO.getOffset();
             break;
 
@@ -142,6 +149,7 @@ MCOperand LoongArchMCInstLower::LowerOperand(const MachineOperand &MO,
         case MachineOperand::MO_Immediate:
             return MCOperand::createImm(MO.getImm() + offset);
         case MachineOperand::MO_MachineBasicBlock:
+        case MachineOperand::MO_ExternalSymbol:
         case MachineOperand::MO_JumpTableIndex:
         case MachineOperand::MO_BlockAddress:
         case MachineOperand::MO_GlobalAddress:

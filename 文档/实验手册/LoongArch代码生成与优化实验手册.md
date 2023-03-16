@@ -2570,7 +2570,7 @@ $BB0_5:
 
 ​		
 
-## 8.2 从栈帧中读取参数
+## 8.2 函数传参
 
 ​		在第2.5节中我们已经实现了一部分栈帧管理的功能，例如函数头和函数尾，以及减小旧SP开辟栈空间等，为了支持函数调用，我们还需要实现参数传递机制。
 
@@ -2586,19 +2586,72 @@ $BB0_5:
 
 ​		实现了当调用过程中需要占用参数寄存器时，将参数寄存器的值保存到栈中的方法copyByValRegs()。保存地址相对栈底的偏移值的计算方式为：`参数寄存器预留空间大小 - （参数寄存器总数 - 该参数寄存器序号） * 参数寄存器的大小`，对于ILP32S，就是`32-(8-寄存器序号)*4`。计算好偏移值后就为其生成store节点插入DAG中。
 
-
-
 + **编译测试**
 
 ​		测试文件及输出在/调试输出/8-2目录下。使用具有9个参数的main函数来测试函数传参功能，由于此时还未实现函数返回控制所以无法使用子函数来测试。查看输出的汇编代码test.s可以看到，前八个参数从a0-a7（即r4-r11）中加载。第9个参数从内存中SP+80的位置加载，当前栈空间为48字节，SP+48往上是上一层的调用者栈帧，SP+80正是旧SP加上参数寄存器预留空间（32字节）后的剩余参数的地址。
 
-## 8.3		
+
+
+## 8.3 函数唤起	
+
+​		本节使用“函数唤起”的名字以区别于“函数调用”，是指代整个函数调用过程中“索引并进入子程序”的这一步。本节将实现函数唤起指令的匹配模式和目标函数地址操作数的解析方法，使后端能够成功唤起函数。
+
++ **LoongArchInstrInfo.td**
+
+​		调用函数（唤起子程序）的指令有两种，一是使用26位地址立即数的直接寻址指令BL，二是访问寄存器内地址的间接寻址指令JARA。在LoongArch指令集中，没有使用寄存器的函数唤起指令，所以我们将JARA扩展为JIRL指令实现的伪指令。
+
+​		直接寻址指令BL根据目标地址操作数节点的类型又分为两种匹配模式如下：
+
+```assembly
+def : Pat<(LoongArchJmpLink (i32 tglobaladdr:$dst)), (BL tglobaladdr:$dst)>;
+def : Pat<(LoongArchJmpLink (i32 texternalsym:$dst)), (BL texternalsym:$dst)>;
+```
+
+​		其中，tglobaladdr节点来自用户在程序中显式自定义的函数，texternalsym节点来自LLVM编译用户的程序时隐式提供并调用的内置函数库的函数，例如声明类时系统默认生成的默认构造函数。此处的定义顺序会指示TableGen优先使用tglobaladdr节点的匹配模式合法化DAG。
+
+​		与7.1节中分支跳转目的操作数的处理方式类似，我们将函数唤起的目标操作数定义为calltarget，指定其编码方法为"getJumpTargetOpValue“从而抛给LoongArchMCCodeEmitter类中同名的地址操作数值解析方法。
+
++ **MCTargetDesc//LoongArchMCCodeEmitter.cpp**
+
+​		在getJumpTargetOpValue()方法中为函数唤起的目标操作数解析重定义类型。
+
++ **LoongArchMCInstLower.cpp**
+
+​		函数唤起目标操作数在LLVM中属于外部全局符号类型MO_ExternalSymbol，类似GlobalAddress，我们在符号操作数下降方法LowerSymbolOperand()中将其解析为”符号+(PC)偏移值“的计算方式。
+
++ **MCTargetDesc/LoongArchAsmBackend.cpp**
+
+​		在所有重定位值都必须经过的调整方法adjustFixupValue()中添加调用目标地址的重定位类型fixup_LoongArch_CALL16以正确识别，但无需做任何特殊调整。
+
++ **MCTargetDesc/LoongArchELFObjectWriter.cpp**
+
+​		将fixup_LoongArch_CALL16映射到ELF重定位类型R_LOONGARCH_CALL16
+
++ **MCTargetDesc/LoongArchFixupKinds.h**
+
+​		新增fixup_LoongArch_CALL16的枚举变量。
+
++ **LoongArchMachineFunctionInfo(.h/cpp)**
+
+​		添加获取函数栈帧中参数区和动态区信息的接口。
+
++ **LoongArchSEFrameLowering(.h/cpp)**
+
+​		实现被调用者保存寄存器的溢出方法spillCalleeSavedRegisters()，将所有被调用者保存寄存器的值复制到栈空间中。这里有一个特例，如果返回地址寄存器RA保存着返回地址（说明在子程序中）则无需执行溢出，因为RA在ret指令的下降方法LowerReturn()中已经溢出过了。
+
+
+
+​		现在，我们的后端可以正常唤起函数了，函数返回的相关细节将在下一节实现。
+
+
+
+## 8.4 函数返回
+
+​		8.2-8.3节中我们实现了进入函数调用时的功能：参数处理和函数唤起，本节将实现退出函数调用时的功能：返回值处理。我将返回值处理的功能设计在调用者的方法中，因为这实际上是一个“将传出参数保存到调用者的栈中”的过程，而被调用者理应不允许改变外层调用者的栈帧，故而这应该属于调用者执行的操作。
 
 + **LoongArchISelLowering(.h/.cpp)**
 
-  函数调用下降方法LowerCall()
-
-​		
+​		函数调用下降方法LowerCall()
 
 # 参考文献
 
