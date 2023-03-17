@@ -20,7 +20,9 @@ namespace llvm {
 
         const LoongArchRegisterInfo &getRegisterInfo() const override;
 
-
+        void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+                         const DebugLoc &DL, MCRegister DestReg, MCRegister SrcReg,
+                         bool KillSrc) const override;
         // Expand Pseudo instructions into real backend instructions
         bool expandPostRAPseudo(MachineInstr &MI) const override;
 
@@ -50,6 +52,8 @@ namespace llvm {
 
     private:
         void expandRetRA(MachineBasicBlock &MBB, MachineBasicBlock::iterator I) const;
+
+        void expandJARA(MachineBasicBlock &MBB, MachineBasicBlock::iterator I) const;
 
         unsigned getOppositeBranchOpc(unsigned Opc) const override;
     };

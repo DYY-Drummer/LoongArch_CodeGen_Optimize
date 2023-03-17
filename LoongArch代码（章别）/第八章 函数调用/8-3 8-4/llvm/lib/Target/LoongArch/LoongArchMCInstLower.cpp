@@ -215,11 +215,28 @@ bool LoongArchMCInstLower::lowerLongBranch(const MachineInstr *MI,
     }
 }
 
+/// lower (JARA $rj) into (JIRL RA, $rj, 0)
+void LoongArchMCInstLower::lowerJARA(const MachineInstr *MI,
+                                           MCInst &OutMI) const {
+    OutMI.setOpcode(LoongArch::JIRL);
+
+    OutMI.addOperand(MCOperand::createReg(LoongArch::RA));
+
+    // Lower register operand $rj.
+    OutMI.addOperand(LowerOperand(MI->getOperand(1)));
+
+    OutMI.addOperand(MCOperand::createImm(0));
+
+}
 
 void LoongArchMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMCInst) const {
     // No need to lower again if long branch handler can handle it
     if (lowerLongBranch(MI, OutMCInst))
         return;
+  /*  else if(MI->getOpcode()==LoongArch::JARA){
+        lowerJARA(MI,OutMCInst);
+        return;
+    }*/
 
     OutMCInst.setOpcode(MI->getOpcode());
 

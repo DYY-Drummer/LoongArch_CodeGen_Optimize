@@ -534,15 +534,15 @@ let isBranch = 1, isTerminator = 1, isBarrier = 1,
 def BAL: FmtI26<0b010101, (outs), (ins jmptarget:$addr), "bl\t$addr", [], IIBranch>,
             Requires<[HasSlt]>;
 
-def JIRL     : Fmt2RI16<0b010011, (outs GPROut:$rd), (ins GPR:$rj, simm16:$imm16), "jirl", [], IIBranch>;
+def JIRL     : Fmt2RI16<0b010011, (outs GPROut:$rd), (ins GPR:$rj, simm16:$imm16), "jirl\t$rd, $rj, $imm16", [], IIBranch>;
 def RET      : RetBase<GPROut>;
 def JR       : JumpFR<0b010011, "jr", GPROut>;
 
 // call with Label
 def BL      : JumpLink<0b010101, "bl">;
 // call with Register
-def JARA    : JumpLinkReg<GPR>,
-              PseudoInstExpansion<(JIRL RA, GPR:$rj, 0)>;
+def JARA    : JumpLinkReg<GPR>;
+//              ,PseudoInstExpansion<(JIRL RA, GPR:$rj, 0)>;
 
 /// sext and zext
 def EXT_W_B : EXT<0b0000000000000000010111, "ext.w.b", GPR>;

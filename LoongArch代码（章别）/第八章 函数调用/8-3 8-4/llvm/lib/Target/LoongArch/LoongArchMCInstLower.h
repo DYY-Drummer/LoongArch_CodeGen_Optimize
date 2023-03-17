@@ -36,6 +36,8 @@ namespace llvm {
             void lowerLongBranchADDI_W(const MachineInstr *MI, MCInst &OutMI,
                                     int Opcode, LoongArchMCExpr::LoongArchExprKind Kind) const;
             bool lowerLongBranch(const MachineInstr *MI, MCInst &OutMI) const;
+
+            void lowerJARA(const MachineInstr *MI, MCInst &OutMI) const;
     };
 
 } // end namespace llvm

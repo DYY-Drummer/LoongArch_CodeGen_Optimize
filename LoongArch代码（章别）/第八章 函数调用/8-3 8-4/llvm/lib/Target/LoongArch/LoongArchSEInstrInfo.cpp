@@ -26,8 +26,34 @@ const LoongArchRegisterInfo &LoongArchSEInstrInfo::getRegisterInfo() const {
     return RI;
 }
 
+// ORI $Dest, $ZERO, $SRC
+void LoongArchSEInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator I,
+                                  const DebugLoc &DL, MCRegister DestReg,
+                                  MCRegister SrcReg, bool KillSrc) const {
+    unsigned Opc = 0, ZeroReg = 0;
 
+    if (LoongArch::GPRRegClass.contains(DestReg)) { // Copy to CPU Reg.
+        if (LoongArch::GPRRegClass.contains(SrcReg))
+            Opc = LoongArch::ORI, ZeroReg = LoongArch::ZERO;
+    }
+    else if (LoongArch::GPRRegClass.contains(SrcReg)) { // Copy from CPU Reg.
+       // Leave empty for now
+    }
 
+    assert(Opc && "Cannot copy registers");
+
+    MachineInstrBuilder MIB = BuildMI(MBB, I, DL, get(Opc));
+
+    if (DestReg)
+        MIB.addReg(DestReg, RegState::Define);
+
+    if (ZeroReg)
+        MIB.addReg(ZeroReg);
+
+    if (SrcReg)
+        MIB.addReg(SrcReg, getKillRegState(KillSrc));
+}
 
 bool LoongArchSEInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MachineBasicBlock &MBB = *MI.getParent();
@@ -37,6 +63,9 @@ bool LoongArchSEInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
             return false;
         case LoongArch::RetRA:
             expandRetRA(MBB, MI);
+            break;
+        case LoongArch::JARA:
+            expandJARA(MBB, MI);
             break;
     }
 
@@ -137,6 +166,11 @@ unsigned LoongArchSEInstrInfo::loadImmediate(int64_t Imm, MachineBasicBlock &MBB
 void LoongArchSEInstrInfo::expandRetRA(MachineBasicBlock &MBB,
                                   MachineBasicBlock::iterator I) const {
     BuildMI(MBB, I, I->getDebugLoc(), get(LoongArch::RET)).addReg(LoongArch::RA);
+}
+
+void LoongArchSEInstrInfo::expandJARA(MachineBasicBlock &MBB,
+                                       MachineBasicBlock::iterator I) const {
+    BuildMI(MBB, I, I->getDebugLoc(), get(LoongArch::JIRL),(unsigned)LoongArch::RA).addReg(LoongArch::T7).addImm(0);
 }
 
 /// getOppositeBranchOpc - Return the inverse of the specified
