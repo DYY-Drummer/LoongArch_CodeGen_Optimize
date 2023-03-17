@@ -526,7 +526,7 @@ LoongArchTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                                DAG.getIntPtrConstant(0, DL, true), InFlag, DL);
     InFlag = Chain.getValue(1);
 
-    // Handle result values, copying them out of physregs into vregs that we
+    // Handle result values, copying them out of physical regs into virtual regs that we
     // return.
     return LowerCallResult(Chain, InFlag, CallConv, IsVarArg,
                            Ins, DL, DAG, InVals, CLI.Callee.getNode(), CLI.RetTy);

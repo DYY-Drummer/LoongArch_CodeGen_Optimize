@@ -402,14 +402,14 @@ class JumpLinkReg<RegisterClass RC>:
 
 // @TailCall
 let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1,
-        hasExtraSrcRegAllocReq = 1, Defs = [RA] in {
+        hasExtraSrcRegAllocReq = 1, Defs = [R21] in {
 class TailCall<Instruction JumpInst> :
         PseudoSE<(outs), (ins calltarget:$target), [], IIBranch>,
         PseudoInstExpansion<(JumpInst jmptarget:$target)>;
 
-class TailCallReg<RegisterClass RO, Instruction JRInst, RegisterClass ResRO = RO> :
-        PseudoSE<(outs), (ins RO:$rs), [(LoongArchTailCall RO:$rs)], IIBranch>,
-        PseudoInstExpansion<(JRInst ResRO:$rs)>;
+class TailCallReg<Instruction JRInst> :
+        PseudoSE<(outs), (ins GPR:$rj), [(LoongArchTailCall GPR:$rj)], IIBranch>,
+        PseudoInstExpansion<(JRInst ZERO, GPR:$rj, 0)>;
 }
 
 // Count Leading Ones/Zeros in Word
@@ -543,6 +543,9 @@ def BL      : JumpLink<0b010101, "bl">;
 // call with Register
 def JARA    : JumpLinkReg<GPR>;
 //              ,PseudoInstExpansion<(JIRL RA, GPR:$rj, 0)>;
+
+def TAILCALL   : TailCall<B>;
+def TAILCALL_R : TailCallReg<JIRL>;
 
 /// sext and zext
 def EXT_W_B : EXT<0b0000000000000000010111, "ext.w.b", GPR>;

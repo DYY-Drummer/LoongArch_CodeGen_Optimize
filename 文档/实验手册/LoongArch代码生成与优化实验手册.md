@@ -2600,7 +2600,18 @@ $BB0_5:
 
 ​		调用函数（唤起子程序）的指令有两种，一是使用26位地址立即数的直接寻址指令BL，二是访问寄存器内地址的间接寻址指令JARA。在LoongArch指令集中，没有使用寄存器的函数唤起指令，所以我们将JARA扩展为JIRL指令实现的伪指令。
 
-​		在2.4节中处理return节点时，我们已经实现过RetRA伪指令到真实机器指令JIRL的扩展，不过为了将叙述重点放在后端类结构上，之中的细节草草一笔带过了。此处便以JARA为例，展开讲讲LLVM中伪指令扩展的机制。
+​		在2.4节中处理return节点时，我们已经实现过RetRA伪指令到真实机器指令JIRL的扩展，不过为了将叙述重点放在后端类结构上，之中的细节草草一笔带过了。此处便以JARA为例，展开讲讲LLVM中伪指令扩展的机制。伪指令与普通指令的定义格式相同，都是继承自LLVM Instruction类。伪指令的判定通过设置类中的属性"isPseudo=1"指明。由于伪指令后续都需要用其它机器指令替代，所以伪指令的汇编文本格式以及DAG匹配模式的定义都是无意义的，这两个参数在定义时可直接传入一个空字符串和空List，后面扩展为其它指令时这些属性都会被扩展指令的属性替代。伪指令的定义完成后，DAG合法化、DAG选择、一直到下降为机器指令序列阶段，我们都可直接使用伪指令参与翻译。伪指令扩展是在所有代发射的MachineInstr序列准备完成后执行的，亦即Asmprinter打印汇编代码之前。在执行虚拟寄存器分配后（此时的MachineInstr序列形如`$a0 = nsw ADD_W killed $a0, killed $a1`），CodeGen对所有伪指令调用TargetInstrInfo类中的expandPostRAPseudo(MachineInstr &MI)方法，这个方法就是提供给后端开发者自定义伪指令扩展逻辑的地方。我们在LoongArchSEInstrInfo类中重写该方法，根据伪指令的Opcode选择相应的扩展方法，例如expandJARA()：
+
+```c++
+void LoongArchSEInstrInfo::expandJARA(MachineBasicBlock &MBB, MachineBasicBlock::iterator I) const {
+    BuildMI(MBB, I, I->getDebugLoc(), get(LoongArch::JIRL),(unsigned)LoongArch::RA).addReg(LoongArch::T7).addImm(0);
+    MBB.erase(MI);
+}
+```
+
+​		 BuildMI()是扩展操作中的核心方法，它可以在指定的MachineBasicBlock内特定的序列位置插入一条新的MachineInstr。例如如上代码代表在原指令I的位置，插入一条操作符为JIRL的指令，目的操作数为RA，第一源操作数为T7，第二源操作数为立即数0，即`JIRL RA, $T7, 0`。最后调用MachineBasicBlock的erase()方法将原伪指令从指令序列中删除，就完成了伪指令的扩展.
+
+
 
 ​		直接寻址指令BL根据目标地址操作数节点的类型又分为两种匹配模式如下：
 
@@ -2612,6 +2623,10 @@ def : Pat<(LoongArchJmpLink (i32 texternalsym:$dst)), (BL texternalsym:$dst)>;
 ​		其中，tglobaladdr节点来自用户在程序中显式自定义的函数，texternalsym节点来自LLVM编译用户的程序时隐式提供并调用的内置函数库的函数，例如声明类时系统默认生成的默认构造函数。此处的定义顺序会指示TableGen优先使用tglobaladdr节点的匹配模式合法化DAG。
 
 ​		与7.1节中分支跳转目的操作数的处理方式类似，我们将函数唤起的目标操作数定义为calltarget，指定其编码方法为"getJumpTargetOpValue“从而抛给LoongArchMCCodeEmitter类中同名的地址操作数值解析方法。
+
++ **LoongArchISelLowering(.h/.cpp)**
+
+​		函数调用的核心下降方法LowerCall()。在PIC重定位模式下，后端会使用”load重定位符号+JARL“的方式跳转到函数入口，函数符号的地址留到加载或链接阶段重定位解析；在Static重定位模式下，后端会使用"BL+函数标签名”的方式跳转到函数入口。唤起函数后，首先从CallingConvention中获取调用节点的信息（如JIRL，BL），依次解析唤起节点的数据链中绑定的参数，如果是值传递的参数，则在被调用者的栈中为其分配内存空间。之后判断是否为尾调用，对于尾调用的情况，为了避免递归时栈空间嵌套太深，开栈操作太频繁的问题，执行尾调用优化，优化方法暂时留空，留在8.5节实现。
 
 + **MCTargetDesc//LoongArchMCCodeEmitter.cpp**
 
@@ -2653,13 +2668,28 @@ def : Pat<(LoongArchJmpLink (i32 texternalsym:$dst)), (BL texternalsym:$dst)>;
 
 + **LoongArchISelLowering(.h/.cpp)**
 
-​		函数调用下降方法LowerCall()，在下降操作的前后还需要使用DAG.getCALLSEQ_START()和DAG.getCALLSEQ_END()方法将CALLSEQ_START和CALLSEQ_END节点插入到DAG中，这两个节点是LLVM内置节点，用于标志新的调用栈的开始和结束。
+  首先，使用DAG.getCALLSEQ_START()和DAG.getCALLSEQ_END()方法将CALLSEQ_START和CALLSEQ_END节点插入到DAG中，这两个节点是LLVM内置节点，用于标志新的调用栈的开始和结束。与加载函数的传入参数类似，遍历之前解析好的传出参数，对寄存器传递的参数，调用passByValArg()，生成load节点加载到寄存器中，对栈传递的参数，调用passArgOnStack()生成store节点存放到先前分配的调用者的栈中。最后调用LowerCallResult()将所有的返回值寄存器中的值从寄存器中复制出来，并还原被调用者保存寄存器的旧值。
 
-​		与加载函数的传入参数类似，首先通过LoongArchCCInfo获取传出参数的信息，之后遍历传出参数数组，创建store节点将参数从返回值寄存器复制到调用者的栈中。
+​		所有直接调用的函数名都会生成一个GlobalAddress或ExternalSymbol的符号节点，类似全局变量符号引用，我们需要将其转换为TargetGlobalAddress和TargetExternalSymbol以通过DAG合法化阶段。之后在符号操作数下降阶段就会按照我们先前定义的符号解析方法翻译为load符号地址的指令。
+
++ **LoongArchInstrInfo.td**
+
+​		定义CALLSEQ_START和CALLSEQ_END节点使用的伪指令ADJCALLSTACKDOWN和ADJCALLSTACKUP，这两个伪指令用于指示后端调整函数调用栈帧偏移，在LoongArchFrameLowering中会被从指令序列中删除，不输出。这两个伪指令在x86、ARM、RISC-V的后端中都有定义，是一个共性的操作。
+
++ **LoongArchFrameLowering(.h/.cpp)**
+
+​		添加用于删除ADJCALLSTACKDOWN和ADJCALLSTACKUP伪指令的方法。
 
 
 
+## 8.5 尾调用
 
+​		defs和use的定义：
+
+```
+def[n] = set of all variables defined at node n
+use[n] = set of all variables used at node n
+```
 
 # 参考文献
 
