@@ -2278,7 +2278,7 @@ SelectionDAG has 14 nodes:
   t16: ch = br t23, BasicBlock:ch< 0x52cd338>
 ```
 
-​		"ch"是“chain”的缩写，代表一系列有序节点。
+​		"ch"是“chain”的缩写，在LLVM中代表维护一系列节点的有序链条不被打乱。
 
 ​		从跳转条件分，跳转指令分为有条件跳转和无条件跳转，从跳转地址模式分，跳转指令分为使用绝对地址的直接跳转和使用相对偏移的间接跳转。
 
@@ -2564,7 +2564,7 @@ $BB0_5:
 
 ​		LoongArch函数调用过程中栈的数据结构如下图所示。LoongArch的栈向下增长，以16字节对齐，子函数参数位于当前栈帧的顶部（低地址处）。函数传参的传递方式有两种：保存在栈中或保存在参数专用保留寄存器中。LoongArch ELF ABI中将通用寄存器中的a0-a7都归为了参数寄存器，a0-a1同时也作为函数返回值寄存器，这两者并不冲突，因为函数返回值会在函数调用临结束前才保存到返回值寄存器中，而函数调用结束时函数参数的声明周期也就结束了。LoongArch后端中将前8个函数参数保存在参数寄存器中，超过8个的剩余参数保存在调用者的栈中。
 
-​		![LoongArch栈帧结构](LoongArch栈帧结构.png)
+​		<img src="LoongArch栈帧结构.png" alt="LoongArch栈帧结构" style="zoom: 80%;" />
 
 ​		需要注意的是，虽然前8个参数的值保存在参数寄存器中，不用赋值到栈空间内，但是编译器仍会为其在调用者栈中为每个（整数）参数寄存器预留4字节的空间，最多32字节。因为编译器无法预判这8个参数寄存器是否会在接下来的调用过程中被占用，例如被调用者再次调用子函数时，此时就需要将参数寄存器中的值保存在预留的栈空间内，等待子函数返回时恢复。
 
@@ -2668,9 +2668,38 @@ def : Pat<(LoongArchJmpLink (i32 texternalsym:$dst)), (BL texternalsym:$dst)>;
 
 + **LoongArchISelLowering(.h/.cpp)**
 
-  首先，使用DAG.getCALLSEQ_START()和DAG.getCALLSEQ_END()方法将CALLSEQ_START和CALLSEQ_END节点插入到DAG中，这两个节点是LLVM内置节点，用于标志新的调用栈的开始和结束。与加载函数的传入参数类似，遍历之前解析好的传出参数，对寄存器传递的参数，调用passByValArg()，生成load节点加载到寄存器中，对栈传递的参数，调用passArgOnStack()生成store节点存放到先前分配的调用者的栈中。最后调用LowerCallResult()将所有的返回值寄存器中的值从寄存器中复制出来，并还原被调用者保存寄存器的旧值。
+​		这一步的核心逻辑仍是实现在LowerCall()，以如下简单代码为例，通过Graphivz工具的 -view-dag-combine1-dags选项来查看函数调用过程中生成的完整DAG图如下（使用PIC重定位模式可简化全局符号解析的过程，使DAG图相对简单），我们将对照下图说明LowerCall()的逻辑：
 
-​		所有直接调用的函数名都会生成一个GlobalAddress或ExternalSymbol的符号节点，类似全局变量符号引用，我们需要将其转换为TargetGlobalAddress和TargetExternalSymbol以通过DAG合法化阶段。之后在符号操作数下降阶段就会按照我们先前定义的符号解析方法翻译为load符号地址的指令。
+```c++
+extern int sum(int x1);
+int main() {
+    return sum(1);
+}
+```
+
+```assembly
+; 由 Clang -O0 生成的IR代码
+define dso_local i32 @main() #0 {
+  %1 = call i32 @sum(i32 signext 1)
+  ret i32 %1
+}
+
+declare dso_local i32 @sum(i32 signext) #1
+```
+
+​		<img src="LowerCall-DAG.png" alt="LowerCall-DAG"  />
+
+​		黑路径代表数据流依赖，红路径代表控制流依赖（Glue），蓝色虚线代表链依赖（chain）。Glue用于保证两个需要保持黏连的节点在指令重调度过程中不会被分开；Chain用于保证两个具有副作用的节点（例如内存操作和寄存器占用）在指令重调度过程中不会被打乱相对顺序，否则容易发生资源死锁和内存污染等问题。
+
+​		首先，是8.3节中介绍的传入参数的处理工作，为8个参数寄存器预留32字节的栈空间，通过CopyToReg节点将第一个参数“1”复制到a0寄存器。之后调用DAG.getCALLSEQ_START()方法将CALLSEQ_START节点插入到DAG中，这个节点是LLVM内置节点，用于标志新的调用过程的开始，相应地，在函数调用结束前调用DAG.getCALLSEQ_END()，插入和CALLSEQ_END节点，标志调用过程的结束。
+
+​		其次，索引目标函数的入口地址，所有直接调用的函数名都会生成一个GlobalAddress或ExternalSymbol的符号节点，类似全局变量符号引用，我们需要将其转换为TargetGlobalAddress和TargetExternalSymbol以通过DAG合法化阶段。之后在符号操作数下降阶段就会按照我们先前定义的符号解析方法翻译为load符号地址的指令。然后执行“bl sum”跳转到sum子程序的执行序列。
+
+​		最后，当sum子程序返回时，与加载函数的传入参数类似，遍历之前CallingConvention解析好的传出参数，对寄存器传递的参数，调用passByValArg()，生成load节点加载到寄存器（此处为a0）中，对栈传递的参数，调用passArgOnStack()生成store节点存放到先前分配的调用者的栈中。
+
+​		至此，LowerCall()的工作结束，进入函数返回结果的下降方法LowerCallResult()，使用CopyFromReg节点将所有的返回值寄存器中的值从寄存器中复制出来保存到栈中，并还原被调用者保存寄存器的旧值。
+
+​		sum调用结束后，跳转回main函数中return处理，进入LowerReturn()中，同样，将sum返回到栈中的值复制到返回值寄存器a0，最终到达LoongArchISD::Ret节点返回。
 
 + **LoongArchInstrInfo.td**
 
@@ -2680,7 +2709,69 @@ def : Pat<(LoongArchJmpLink (i32 texternalsym:$dst)), (BL texternalsym:$dst)>;
 
 ​		添加用于删除ADJCALLSTACKDOWN和ADJCALLSTACKUP伪指令的方法。
 
++ **编译测试**
 
+  + 传入传出参数测试
+
+  使用8-4/test.c测试带有9个参数的函数调用功能，输出正常。
+
+  下面重点测试一下隐式函数调用和特殊参数类型。
+
+  + 隐式调用
+
+  如下代码所示，正如前面所说，LLVM编译用户的程序时会隐式提供并调用内置的一些函数库的函数，当我们声明一个字符串（或字符数组）时，LLVM会隐式调用memcpy()为其开辟空间，利用一长一短两个字符串变量来测试这种情况。
+
+  ```c
+  char str_long[99] = "Long long long string";
+  char str_short[6] = "Hello";
+  ```
+
+  ```assembly
+  %4 = bitcast [99 x i8]* %2 to i8*
+  call void @llvm.memcpy ... @__const.main.str_long ...
+  %5 = bitcast [6 x i8]* %3 to i8*
+  call void @llvm.memcpy ... @__const.main.str_short ...
+  ```
+
+  ```assembly
+  main:
+  ...
+  	lu12i.w	$r4, %hi(.L__const.main.str_long)
+  	ori	$r5, $r4, %lo(.L__const.main.str_long)
+  	addi.w	$r6, $r0, 99
+  	bl	memcpy
+  	lu12i.w	$r4, %hi(.L__const.main.str_short)
+  	ori	$r4, $r4, %lo(.L__const.main.str_short)
+  ...
+  	st.h	$r5, $r3, 44
+  ...
+  	st.w	$r4, $r3, 40
+  
+  .L__const.main.str_long:
+  	.asciz	"Long long long string \000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\00 ...
+  ...
+  .L__const.main.str_short:
+  	.asciz	"Hello"
+  ...
+  ```
+
+  ​		可以看到，对于大于64字节的长字符串str_long，汇编代码中调用了memcpy()函数来开辟空间；而对于不超过8字节的短字符串str_short，虽然在IR中也使用了memcpy，但是会在DAG匹配指令选择阶段被LLVM优化成Long Long型常量的存储方式，使用st.h将其高位的2个字符存放在了SP+44的地方，使用st.w将其地位的4个字符存放在了SP+40的地方。
+
+  
+
+  + 结构体参数
+
+    使用test_struct.cpp测试后端在结构体、结构体指针和函数重载情况下的表现。
+
+    对于返回值为值传递参数的getDate函数，调用者是将为返回结果（结构体）预留的栈空间地址（date1的地址）加载到a0中作为参数传递了进去（所以后端在函数调用中实际传入的参数个数与我们显示定义的参数个数有可能不同）。进入getDate函数后，子程序通过3对load-store操作将全局变量today的三个int变量分别存放到了调用者的栈中date1的位置。
+
+    对于传入参数为值传递的copyDate_byval函数，调用者将为返回结果预留的栈空间地址(date2的地址）加载到a0中，将date1中的三个int变量分别加载到a1-a3中作为参数传递了进去。进入copyDate_byval函数后，子程序将a1-a3中的值取出存入了相对于a0计算的，调用者栈中date2的位置。
+
+    对于传入参数为指针的copyDate_byPointer函数，调用者将date3的地址作为第一参数，date1的地址作为第二参数传入。进入copyDate_byPointer函数后，与getDate相同，通过3对load-store操作将date1的内容复制到了调用者栈中date3的位置。
+
+  + 浮点数操作
+
+  
 
 ## 8.5 尾调用
 
@@ -2690,6 +2781,16 @@ def : Pat<(LoongArchJmpLink (i32 texternalsym:$dst)), (BL texternalsym:$dst)>;
 def[n] = set of all variables defined at node n
 use[n] = set of all variables used at node n
 ```
+
+
+
+
+
+
+
+
+
+
 
 # 参考文献
 
