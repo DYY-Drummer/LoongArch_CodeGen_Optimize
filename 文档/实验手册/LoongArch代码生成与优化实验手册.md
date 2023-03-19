@@ -2769,9 +2769,14 @@ declare dso_local i32 @sum(i32 signext) #1
 
     对于传入参数为指针的copyDate_byPointer函数，调用者将date3的地址作为第一参数，date1的地址作为第二参数传入。进入copyDate_byPointer函数后，与getDate相同，通过3对load-store操作将date1的内容复制到了调用者栈中date3的位置。
 
-  + 浮点数操作
+  + Compiler-RT调用
 
+    LLVM的Compiler-RT运行库类似于GCC的libgcc，在实现函数调用功能后，我们现在可以调用库中的函数，来为我们解决目前暂不支持的低级运算的优化实现，例如浮点运算。当进行双精度浮点加法时，IR会生成fadd节点，TableGen若没有检测到后端中有匹配的指令定义，就会隐式调用Compiler-RT/builtins中的adddf3，floatsidf等方法，而浮点数的值则加载在整数寄存器中。除此之外，我们也能在测试程序中显示调用builtins的函数例如`__builtin_sqrt()`。
   
+    使用test_builtins.c来测试Compiler-RT调用功能。
+  
+
+
 
 ## 8.5 尾调用
 
