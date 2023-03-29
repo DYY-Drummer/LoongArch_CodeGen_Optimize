@@ -88,6 +88,11 @@ namespace llvm {
                                EVT VT) const override;
 
         bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
+
+        /// Return true if the target may be able emit the call instruction as a tail
+        /// call. This is used by optimization passes to determine if it's profitable
+        /// to duplicate return instructions to enable tailcall optimization.
+        bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
     protected:
         SDValue getGlobalReg(SelectionDAG &DAG, EVT Ty) const;
 

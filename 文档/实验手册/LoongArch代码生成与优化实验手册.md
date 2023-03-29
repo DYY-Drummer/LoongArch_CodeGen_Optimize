@@ -1,3 +1,5 @@
+[TOC]
+
 # 序章
 
 
@@ -201,7 +203,7 @@ let Predicates = [DisableOverflow] in {
 
 ​		1）指令选择
 
-​			将LLVM IR转换为一组可选择的有向无环图（DAG），每个DAG节点代表一条指令。将DAG合法化，把操作和数据类型转换为目标机器支持的native instructions格式（如整数32位扩展）。指令选择器根据合法化的目标DAG执行模式匹配，选择对应的目标机器代码模式。此时操作指令替换为了目标机器指令（如`store`替换为`st`）但操作数仍为LLVM虚拟操作数（如寄存器仍为无限的虚拟寄存器）。
+​			将LLVM IR转换为一组可选择的有向无环图（DAG），每个DAG节点代表一条指令。将DAG合法化，把操作和数据类型转换为目标机器支持的格式（如整数32位扩展）。指令选择器根据合法化的目标DAG执行模式匹配，选择对应的目标机器代码模式。此时操作指令替换为了目标机器指令（如`store`替换为`st`）但操作数仍为LLVM虚拟操作数（如寄存器仍为无限的虚拟寄存器）。
 
 ​		2）指令调度和格式化
 
@@ -374,7 +376,7 @@ def ADDI_W : ALU_2RI12<0b0000001010, "addi.w", add, simm12, immSExt12>;
 
     表示一条名为ZERO的记录，他实现了LoongArchGPRReg和DwarfRegNum类。双尖括号内为类的构造传参，参数类型、顺序和数量与类的定义相匹配。特别地，如果类的构造参数在定义时就赋予了初值，那么在定义def时可以省略该参数，此时def中的参数数量小于类定义的参数数量，但是省略的参数必须是参数序列中尾部的参数（否则编译器无法确定哪个参数被省略）。例如类定义`class A<string id, string name="">`中，name具有初始值（空串），定义时就可以省略name：`def subA : A<"My id">;`。
 
-  + 可以看到，该文件定义了所有寄存器的基类LoongArchReg，并进一步分为通用寄存器、辅助寄存器和输出寄存器。每个寄存器拥有四个身份标识：目标特定的硬件编码Enc，汇编输出名n，寄存器别名AltNames和DwarfRegNum。DwarfRegNum提供从LLVM 寄存器枚举变量到被gcc、gdb等Debug 信息输出器所使用的寄存器编码的映射。
+  + 可以看到，该文件定义了所有寄存器的基类LoongArchReg，并进一步分为通用寄存器、辅助寄存器和输出寄存器。每个寄存器拥有四个身份标识：目标特定的硬件编码Enc，汇编输出名n，寄存器别名AltNames和DwarfRegNum。DwarfRegNum提供从LLVM 寄存器枚举变量到被gcc、gdb等Debug工具输出信息时所使用的寄存器编码的映射。
   
     回顾LoongArch指令格式，指令中每个寄存器引用占据5-bit，所以可分配的数值范围为0~31。一旦将0 ~ 31 分配给HWEncoding，TableGen就可以自动获取并设置这个编号。GPROut 包含了所有R21的所有GPR，因此在寄存器分配阶段，R21就不会被分配为输出寄存器。查看编译后生成的LoongArchGenRegisterInfo.inc文件可以看到TableGen打包的寄存器信息。
   
@@ -576,7 +578,7 @@ int main() {
 
 # 第二章 后端结构
 
-​		在上一章中我们完成了一个新后端所必需的“表面功夫”，深入到目标机器级别的内容还一无所有。本章将根据LLVM后端继承树的结构逐步实现目标机器架构、汇编输出器、IR DAG到目标机器DAG指令选择、函数首/尾端处理，最终支持main函数只包含一个return语句的C程序 ，能够输出LoongArch汇编代码。本章可能是最为晦涩难懂的一章，因为我们需要打穿IR到机器代码中间的所有流程，逻辑纵穿整个LLVM后端结构，代码量约5000行。话虽如此，这部分的代码在所有的后端中都几乎一样，在实际编程中可大批挪用Mips/RISCV的代码，再进行修改（笔者希望未来的LLVM可以把这些共通的代码移植到公共代码区，不再需要开发人员手动编写）。读者在阅读本章时应将重点放在各成员类的调用关系和DAG模式匹配上，一旦熟悉了LLVM后端结构，就可以十分快速地从零开始构建一个新的后端。
+​		在上一章中我们完成了一个新后端所必需的“表面功夫”，深入到目标机器级别的内容还一无所有。本章将根据LLVM后端继承树的结构逐步实现目标机器架构、汇编输出器、IR DAG到目标机器DAG指令选择、函数首/尾端处理，最终支持main函数只包含一个return语句的C程序 ，能够输出LoongArch汇编代码。本章可能是最为晦涩难懂的一章，因为我们需要打穿IR到机器代码中间的所有流程，逻辑纵穿整个LLVM后端结构。话虽如此，这部分的代码在所有的后端中都几乎一样，在实际编程中可大批挪用Mips/RISCV的代码，再进行修改（笔者希望未来的LLVM可以把这些共通的代码移植到公共代码区，不再需要开发人员手动编写）。读者在阅读本章时应将重点放在各成员类的调用关系和DAG模式匹配上，一旦熟悉了LLVM后端结构，就可以十分快速地从零开始构建一个新的后端。
 
 
 
@@ -1345,6 +1347,7 @@ int main()
 将.dot文件转换为png图片：dot /tmp/dag.main-b09641.dot -Tpng -o test.png
 
 -filter-view-dags:可以只打印基本块
+
 ```
 
 ​		不过，使用Graphviz选项运行llc命令，只有在你的后端能正常生成完整的.s文件的前提下，才能生成正常的.dot文件，否则会生成损坏的.dot文件。如果你是因为某个指令处理不当导致.s文件生成失败而想查看失败前的DAG选择情况，请配合GDB工具，在异常中断前的某个节点处打上断点，然后通过 `print CurDAG->viewGraph()`来生成.dot文件（不过有些时候调用不到CurDAG）。
@@ -1369,7 +1372,7 @@ int main()
 
 ​		在翻译比较指令时，LLVM IR会生成zext指令，将i1的结果扩展为i32，龙芯指令集中没有无符号扩展指令，通过setOperationAction()方法将其扩展为SRA_W和SLL_W的组合。
 
-​	（不过此处我无论加没加这些setOperationAction()，汇编代码输出也成功了，视乎忽略了zext指令。）
+​	（不过此处我无论加没加这些setOperationAction()，汇编代码输出也成功了，似乎忽略了zext指令。）
 
 + **编译测试**
 
@@ -1452,16 +1455,6 @@ run
 
 + Node->dump()可打印出当前节点的易读信息.
 + MachineOperand.getParent()，MachineOperand.getParent()->getParent()可分别获取到该操作数所处的MachineInstr，该指令所处的BasicBlock，再使用dump()可打印出详细信息（如BasicBlock内所有的指令）。
-
-
-
-+ 可用如下指令分别统计所有.cpp,.td,.h,.txt文件的行数
-
-```bash
-wc -l `find path -name "*.cpp"`|tail -n1
-```
-
-LLVM10.0.0中Mips 代码总数 82,182；  X86 代码总数 186,831（包括注释）
 
 
 
@@ -1599,7 +1592,13 @@ Contents of section .text:
  ...
 ```
 
-​		“Contents of section .text:"段对应着汇编代码中的”# %bb.0:“段，即main函数。LoongArch的指令为32位定长，故第一条指令的Obj编码为”02bf0063“。查看3.1节生成的Asm代码，可知第一条指令的汇编代码为：`addi.w  $r3, $r3, -64`。
+​		“Contents of section .text"段是可执行指令的集合，对应着汇编代码中的”# %bb.0:“段，即main函数。LoongArch的指令为32位定长，故第一条指令的Obj编码为”02bf0063“。查看3.1节生成的Asm代码，可知第一条指令的汇编代码为：`addi.w  $r3, $r3, -64`。
+
+​		“Contents of section .strtab”段是属于STRTAB类型的section，存着字符串，储存着符号的名字。
+
+​		“Contents of section .symtab”段存放所有section中定义的符号名字，描述了.strtab中的符号在内存中对应的内存地址。
+
+​		“Contents of section .comment”段为注释信息。
 
 ​		addi.w为2RI12格式的指令，在小端模式下，其位码排列为`<opcode | I12 | rj | rd>`。其中addi.w的Opcode占10位：0000001010，-64为12位立即数：111111000000，寄存器rj和rd均为栈指针寄存器SP，寄存器编码占5位：00011（十进制的3）。故`addi.w  $r3, $r3, -64`对应的二进制编码应为：00000010101111110000000001100011，即十六进制的`02bf0063`，Obj编码输出正确。
 
@@ -2778,22 +2777,83 @@ declare dso_local i32 @sum(i32 signext) #1
 
 
 
-## 8.5 尾调用
+## 8.5 尾调用优化
 
-​		defs和use的定义：
+​		尾调用是指一个函数的最后一个返回语句中又调用了函数的情况，常见于递归设计中，例如`return find(index+1)`。包含尾调用的程序存在因调用层数过多，调用栈嵌套复杂导致内存浪费甚至栈溢出等问题的风险，针对这种情况，编译器通常会提供尾调用优化（或尾调用消除）的选项，让调用者和被调用者共用一个栈，从而减少内存使用，提高执行效率。
 
+​		尾调用优化可以由Clang的O1优化选项触发，不过根据版本和源程序的变化，也有可能会需要O2级别的优化。也就是说，是否符合尾调用的特征是由前端给出的，而是否执行和如何执行尾调用优化是由后端完成的。尾调用优化在LLVM IR中使用tail call 节点来表示，本节的首要任务就是实现tail call节点模式匹配。
+
++ **LoongArchInstrInfo.td**
+
+​		与普通函数调用相同，尾调用也分为使用Label作为目的操作数的直接寻址模式和使用寄存器作为目的操作数的间接寻址模式，对此我们分别定义TAILCALL和TAILCALL_R两个伪指令，并扩展为B和JIRL指令。匹配模式为：
+
+| LLVM IR DAG                                    | MachineInstr DAG               |
+| ---------------------------------------------- | ------------------------------ |
+| `(LoongArchTailCall (iPTR tglobaladdr:$dst)`   | `(TAILCALL tglobaladdr:$dst)`  |
+| `(LoongArchTailCall (iPTR texternalsym:$dst))` | `(TAILCALL texternalsym:$dst)` |
+| `(LoongArchTailCall (GPR:$dst))`               | `(TAILCALL_R GPR:$dst)`        |
+
+​		此处的伪指令扩展方式与8.3节中介绍的不同，是在.td文件中继承PseudoInstExpansion类实现的，该类会在TableGen中自动生成的emitPseudoExpansionLowering方法中完成伪指令到真实机器指令的替换下降动作，我们只需在LoongArchAsmPrinter类中声明并调用它即可。
+
++ **LoongArchISelLowering(.h/.cpp)**
+
+​		当LLVM Selection Builder遇到一个调用节点（call）时，就会调用LoongArch子目标实现的TargetLowering::LowerCall()方法，在LowerCall()中，我们可以通过检查传入的调用信息结构体CallLoweringInfo中的IsTailCall属性来判定该调用是否为前端认可的尾调用。
+
+​		但是在进行尾调用优化之前，我们还应进一步审查该尾调用的“资质”，它应符合两个条件：1）调用者和被调用者均没有值传递参数。2）被调用者的参数区不大于调用者的参数区。
+
+​		对于资质符合的尾调用节点，我们不再发射CALLSEQ_START和CALLSEQ_END节点，并将tail call节点下降为自定义节点LoongArch::TailCall，插入到Chain中。
+
++ **编译测试**
+
+​		使用Clang的02优化编译如下递归代码可获得包含tail call节点LLVM IR代码。
+
+```c
+int func_a(int x);
+int func_b(int x) {
+    return (x+1)*flop(x-1);
+}
+int func_a(int x) {
+    return (x+0)*flip(x-1);
+}
 ```
-def[n] = set of all variables defined at node n
-use[n] = set of all variables used at node n
+
+​		在llc命令中加上`-enable-loongarch-tail-calls`来激活尾调用优化，加上`-stats`来查看执行尾调用优化的节点数。
+
+​		执行尾调用优化之后，函数调用跳转指令BL被转换为了无条件跳转指令B。
+
+
+
+# 使用NEMU模拟器测试目标程序
+
+​		龙芯64位云服务前目前暂时无法运行32位的可执行程序，龙芯官方提供了一套基于南京大学NEMU项目实现的LoongArch32模拟器：https://gitee.com/cheungxi/la32r-nemu。
+
+​		按照如下步骤安装运行NEMU模拟器：
+
+```bash
+//拉取LoongArch32模拟器项目代码
+git clone https://gitee.com/cheungxi/la32r-nemu.git
+
+//安装SDL2和readline依赖
+sudo apt-get install libreadline-dev
+sudo apt-get install libsdl2-dev
+（安装依赖过程中可能会报错“The following packages have unmet dependencies”，参考这篇博客解决：https://blog.csdn.net/qq_41566366/article/details/121244177）
+
+//设置NEMU环境变量为拉取下来的项目中的NEMU主目录
+export NEMU_HOME= XXXXXX/la32r-nemu/NEMU
+
+//选择编译配置文件
+make la32-reduced_defconfig
+//编译NEMU项目生成可执行文件
+make
+//进入/la32r-nemu/NEMU/build目录下运行生成的可执行文件，即可进入nemu命令行
+./la32r-nemu-interpreter
+//使用单步调试命令，一条一条指令地执行
+si
 ```
 
+​		NEMU模拟器执行的可执行文件编码存放在la32r-nemu/NEMU/src/isa/la32r/init.c的img[]数组中，以16进制表示，每4字节一分割。使用`llvm-objdump -s test.o`命令查看LoongArch后端生成的可执行程序的16进制编码，并复制到img[]中，并把.text段移到数据段前面。init.c的restart()方法中指定了程序计数器cpu.pc的初始值为0x1c000000，正是img[]开始的位置，无需更改。
 
-
-
-
-
-
-
+​		修改完init.c后需要重新编译NEMU项目，以更新/la32r-nemu/NEMU/build/obj-la32r-nemu-interpreter/src/isa/la32r/目录下的init.o（NEMU可执行程序真正调用的输入文件）。
 
 
 
@@ -2806,3 +2866,89 @@ use[n] = set of all variables used at node n
 + ARM System Developer’s Guide: Designing and Optimizing System Software (The Morgan Kaufmann Series in Computer Architecture and Design).
 
 + Compilers: Principles, Techniques, and Tools (2nd Edition)
+
+
+
+
+
+# 结语
+
+​		LoongArch后端代码行数统计：
+
+```assembly
+	21 ./LoongArchSERegisterInfo.cpp
+    22 ./TargetInfo/LoongArchTargetInfo.cpp
+    29 ./MCTargetDesc/LoongArchTargetStreamer.cpp
+    32 ./MCTargetDesc/LoongArchELFStreamer.cpp
+    35 ./MCTargetDesc/LoongArchMCAsmInfo.cpp
+    39 ./LoongArchMachineFunctionInfo.cpp
+    48 ./LoongArchInstrInfo.cpp
+    67 ./LoongArchSEISelLowering.cpp
+    84 ./InstPrinter/LoongArchInstPrinter.cpp
+    90 ./LoongArchDelUselessB.cpp
+    97 ./LoongArchFrameLowering.cpp
+    98 ./LoongArchTargetObjectFile.cpp
+   105 ./MCTargetDesc/LoongArchABIInfo.cpp
+   124 ./LoongArchSEISelDAGToDAG.cpp
+   125 ./LoongArchSubtarget.cpp
+   138 ./MCTargetDesc/LoongArchMCExpr.cpp
+   140 ./LoongArchAnalyzeImmediate.cpp
+   143 ./MCTargetDesc/LoongArchELFObjectWriter.cpp
+   149 ./LoongArchISelDAGToDAG.cpp
+   155 ./LoongArchRegisterInfo.cpp
+   160 ./MCTargetDesc/LoongArchMCTargetDesc.cpp
+   165 ./LoongArchTargetMachine.cpp
+   172 ./MCTargetDesc/LoongArchAsmBackend.cpp
+   183 ./LoongArchSEFrameLowering.cpp
+   191 ./LoongArchSEInstrInfo.cpp
+   243 ./MCTargetDesc/LoongArchMCCodeEmitter.cpp
+   249 ./LoongArchMCInstLower.cpp
+   296 ./LoongArchAsmPrinter.cpp
+   426 ./LoongArchLongBranch.cpp
+  1242 ./LoongArchISelLowering.cpp
+  5068 total
+---------------------------------------
+   20 ./LoongArch.h
+   22 ./MCTargetDesc/LoongArchMCAsmInfo.h
+   23 ./LoongArchSERegisterInfo.h
+   26 ./LoongArchSEISelLowering.h
+   30 ./LoongArchSEFrameLowering.h
+   35 ./LoongArchTargetObjectFile.h
+   36 ./LoongArchSEISelDAGToDAG.h
+   36 ./MCTargetDesc/LoongArchTargetStreamer.h
+   37 ./LoongArchFrameLowering.h
+   37 ./MCTargetDesc/LoongArchELFStreamer.h
+   43 ./InstPrinter/LoongArchInstPrinter.h
+   44 ./LoongArchMCInstLower.h
+   52 ./LoongArchRegisterInfo.h
+   56 ./LoongArchAnalyzeImmediate.h
+   58 ./MCTargetDesc/LoongArchMCTargetDesc.h
+   61 ./LoongArchSEInstrInfo.h
+   62 ./MCTargetDesc/LoongArchBaseInfo.h
+   63 ./LoongArchTargetMachine.h
+   65 ./MCTargetDesc/LoongArchABIInfo.h
+   68 ./LoongArchISelDAGToDAG.h
+   72 ./LoongArchAsmPrinter.h
+   72 ./MCTargetDesc/LoongArchFixupKinds.h
+   79 ./LoongArchInstrInfo.h
+   80 ./MCTargetDesc/LoongArchAsmBackend.h
+   80 ./MCTargetDesc/LoongArchMCExpr.h
+   98 ./MCTargetDesc/LoongArchMCCodeEmitter.h
+  124 ./LoongArchMachineFunctionInfo.h
+  139 ./LoongArchSubtarget.h
+  357 ./LoongArchISelLowering.h
+ 1975 total
+---------------------------------------
+   18 ./LoongArchOther.td
+   32 ./LoongArchCallingConv.td
+   44 ./LoongArchFloatInstrFormats.td
+   44 ./LoongArchSchedule.td
+   59 ./LoongArchFloatInstrInfo.td
+  142 ./LoongArch.td
+  154 ./LoongArchRegisterInfo.td
+  447 ./LoongArchInstrFormats.td
+  802 ./LoongArchInstrInfo.td
+ 1742 total
+
+```
+

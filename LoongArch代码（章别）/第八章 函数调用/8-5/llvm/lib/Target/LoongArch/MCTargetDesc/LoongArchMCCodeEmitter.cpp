@@ -32,7 +32,7 @@ using namespace llvm;
 MCCodeEmitter *llvm::createLoongArchMCCodeEmitter(const MCInstrInfo &MCII,
                                                const MCRegisterInfo &MRI,
                                                MCContext &Ctx) {
-  return new LoongArchMCCodeEmitter(MCII, Ctx, false);
+  return new LoongArchMCCodeEmitter(MCII, Ctx, true);
 }
 
 

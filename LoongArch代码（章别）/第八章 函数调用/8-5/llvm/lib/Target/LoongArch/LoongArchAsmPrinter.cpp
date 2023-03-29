@@ -31,6 +31,8 @@
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetOptions.h"
 
+
+
 using namespace llvm;
 
 #define DEBUG_TYPE "loongarch-asm-printer"
@@ -40,6 +42,11 @@ bool LoongArchAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     AsmPrinter::runOnMachineFunction(MF);
     return true;
 }
+bool LoongArchAsmPrinter::lowerOperand(const MachineOperand &MO, MCOperand &MCOp) {
+    MCOp = MCInstLowering.LowerOperand(MO);
+    return MCOp.isValid();
+}
+#include "LoongArchGenMCPseudoLowering.inc"
 
 //@EmitInstruction {
 //- EmitInstruction() must exists or will have run time error.
@@ -59,6 +66,9 @@ void LoongArchAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     MachineBasicBlock::const_instr_iterator E = MI->getParent()->instr_end();
 
     do {
+        // Do any auto-generated pseudo lowerings.
+        if (emitPseudoExpansionLowering(*OutStreamer, &*I))
+            continue;
 
         if (I->isPseudo()&& !isLongBranchPseudo(I->getOpcode()))
             llvm_unreachable("Pseudo opcode found in EmitInstruction()");

@@ -528,7 +528,9 @@ def BGEU     : CBranch16<0b011011, "bgeu", setuge, GPROut>;
 }
 def B     : UncondBranch<0b010100, "b">;
 
-// Branch and Link - Long branch support(acctually BL)
+/// Branch and Link - Long branch support(acctually BL)
+//def[n] = set of all variables defined at node n
+//use[n] = set of all variables used at node n
 let isBranch = 1, isTerminator = 1, isBarrier = 1,
     hasDelaySlot = 0, Defs = [RA] in
 def BAL: FmtI26<0b010101, (outs), (ins jmptarget:$addr), "bl\t$addr", [], IIBranch>,
@@ -796,3 +798,8 @@ def : Pat<(LoongArchJmpLink (i32 tglobaladdr:$dst)),
           (BL tglobaladdr:$dst)>;
 def : Pat<(LoongArchJmpLink (i32 texternalsym:$dst)),
           (BL texternalsym:$dst)>;
+
+def : Pat<(LoongArchTailCall (iPTR tglobaladdr:$dst)),
+          (TAILCALL tglobaladdr:$dst)>;
+def : Pat<(LoongArchTailCall (iPTR texternalsym:$dst)),
+          (TAILCALL texternalsym:$dst)>;

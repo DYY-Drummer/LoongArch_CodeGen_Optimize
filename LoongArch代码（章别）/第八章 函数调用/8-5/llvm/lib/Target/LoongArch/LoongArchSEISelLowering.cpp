@@ -54,5 +54,14 @@ bool LoongArchSETargetLowering::
 isEligibleForTailCallOptimization(const LoongArchCC &LoongArchCCInfo,
                                   unsigned NextStackOffset,
                                   const LoongArchMachineFunctionInfo& FI) const {
-    return true;
+    if (!EnableLoongArchTailCalls)
+        return false;
+
+    // Return false if either the callee or caller has a byval argument.
+    if (LoongArchCCInfo.hasByValArg() || FI.hasByvalArg())
+        return false;
+
+    // Return true if the callee's argument area is no larger than the
+    // caller's.
+    return NextStackOffset <= FI.getIncomingArgSize();
 }

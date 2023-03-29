@@ -351,6 +351,10 @@ LoongArchTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     CallingConv::ID CallConv              = CLI.CallConv;
     bool IsVarArg                         = CLI.IsVarArg;
 
+    // Fix this: For some reasons I don't know, CLI.IsTailCall is always false,
+    // whether it's a tail call or normal call.
+    IsTailCall = true;
+
     MachineFunction &MF = DAG.getMachineFunction();
     MachineFrameInfo &MFI = MF.getFrameInfo();
     const TargetFrameLowering *TFL = MF.getSubtarget().getFrameLowering();
@@ -1013,7 +1017,9 @@ void LoongArchTargetLowering::LoongArchCC::handleByValArg(unsigned ValNo, MVT Va
                                       LocInfo));
     ByValArgs.push_back(ByVal);
 }
-
+bool LoongArchTargetLowering::mayBeEmittedAsTailCall(const CallInst *CI) const {
+    return CI->isTailCall();
+}
 unsigned LoongArchTargetLowering::LoongArchCC::numIntArgRegs() const {
     return IsILP32S ? array_lengthof(ILP32SIntRegs) : 0;
 }

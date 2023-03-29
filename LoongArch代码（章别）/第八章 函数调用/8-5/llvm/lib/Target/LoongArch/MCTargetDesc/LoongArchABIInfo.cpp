@@ -15,9 +15,10 @@
 using namespace llvm;
 
 static cl::opt<bool>
-        EnableLoongArchILP32FCalls("loongarch-ilp32f-calls", cl::Hidden,
-                           cl::desc("LOONGARCH ILP32F call: use 32-bit general register, 32-bit float point register and stack to pass arguments."),
-                           cl::init(false));
+        EnableLoongArchILP32FCalls("loongarch-stack-calls", cl::Hidden,
+                                   cl::desc("LOONGARCH stack call: use stack only to pass arguments(For debug purpose, may be replaced by ILP32F)."),
+                                   //cl::desc("LOONGARCH ILP32F call: use 32-bit general register, 32-bit float point register and stack to pass arguments."),
+                                   cl::init(false));
 static cl::opt<bool>
         EnableLoongArchILP32DCalls("loongarch-ilp32d-calls", cl::Hidden,
                                    cl::desc("LOONGARCH ILP32D call: use 32-bit general register, 64-bit float point register and stack to pass arguments."),
