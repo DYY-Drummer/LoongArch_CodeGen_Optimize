@@ -2823,7 +2823,7 @@ int func_a(int x) {
 
 
 
-# 使用NEMU模拟器测试目标程序
+# 第九章 使用NEMU模拟器测试目标程序
 
 ​		龙芯64位云服务前目前暂时无法运行32位的可执行程序，龙芯官方提供了一套基于南京大学NEMU项目实现的LoongArch32模拟器：https://gitee.com/cheungxi/la32r-nemu。
 
@@ -2866,8 +2866,6 @@ si
 + ARM System Developer’s Guide: Designing and Optimizing System Software (The Morgan Kaufmann Series in Computer Architecture and Design).
 
 + Compilers: Principles, Techniques, and Tools (2nd Edition)
-
-
 
 
 
