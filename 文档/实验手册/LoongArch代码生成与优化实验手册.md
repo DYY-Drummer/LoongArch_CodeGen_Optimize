@@ -2855,17 +2855,9 @@ si
 
 ​		修改完init.c后需要重新编译NEMU项目，以更新/la32r-nemu/NEMU/build/obj-la32r-nemu-interpreter/src/isa/la32r/目录下的init.o（NEMU可执行程序真正调用的输入文件）。
 
+​		如下图，通过NEMU的调试信息可以查看可执行程序解析出的汇编形式的指令，寄存器的当前值和栈帧信息等。其中x指令为内存检查指令，使用格式为：[x  要查看的字节数  起始地址]。也可以使用help命令查看NEMU的所有指令说明。
 
-
-# 参考文献
-
-+ Computer Organization and Design: The Hardware/Software Interface (The Morgan Kaufmann Series in Computer Architecture and Design)
-
-+ Computer Architecture: A Quantitative Approach (The Morgan Kaufmann Series in Computer Architecture and Design)
-
-+ ARM System Developer’s Guide: Designing and Optimizing System Software (The Morgan Kaufmann Series in Computer Architecture and Design).
-
-+ Compilers: Principles, Techniques, and Tools (2nd Edition)
+![NEMU测试截图](NEMU测试截图.PNG)
 
 
 
@@ -2950,3 +2942,14 @@ si
 
 ```
 
+
+
+# 参考文献
+
++ Computer Organization and Design: The Hardware/Software Interface (The Morgan Kaufmann Series in Computer Architecture and Design)
+
++ Computer Architecture: A Quantitative Approach (The Morgan Kaufmann Series in Computer Architecture and Design)
+
++ ARM System Developer’s Guide: Designing and Optimizing System Software (The Morgan Kaufmann Series in Computer Architecture and Design).
+
++ Compilers: Principles, Techniques, and Tools (2nd Edition)

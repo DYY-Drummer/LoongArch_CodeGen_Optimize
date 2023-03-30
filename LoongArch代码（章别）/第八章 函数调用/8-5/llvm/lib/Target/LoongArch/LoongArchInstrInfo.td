@@ -286,8 +286,10 @@ let isReMaterializable = 1;
 class FMem<bits<10> op, dag outs, dag ins, string asmstr, list<dag> pattern,
           InstrItinClass itin>: Fmt2RI12<op, outs, ins, asmstr, pattern, itin> {
   bits<17> addr; //addr include 5-bit rj and 12-bit simm
-  let Inst{9-5} = addr{16-12};   //rj
-  let Inst{21-10}  = addr{11-0}; //I12
+  //addr comes from LoongArchMCCodeEmitter::getMemEncoding(),
+  //the value of addr is encoded as (simm12 rj)
+  let Inst{9-5} = addr{4-0};   //rj
+  let Inst{21-10}  = addr{16-5}; //I12
   let DecoderMethod = "DecodeMem";
 }
 

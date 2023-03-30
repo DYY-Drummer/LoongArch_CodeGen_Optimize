@@ -19,6 +19,9 @@
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/MCSymbol.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/EndianStream.h"
 #include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "mccodeemitter"
@@ -41,7 +44,7 @@ void LoongArchMCCodeEmitter::EmitByte(unsigned char C, raw_ostream &OS) const {
 }
 
 void LoongArchMCCodeEmitter::EmitInstruction(uint64_t Val, unsigned Size, raw_ostream &OS) const {
-  // Output the instruction encoding in little endian byte order.
+  // Output the instruction encoding in little endian order.
   for (unsigned i = 0; i < Size; ++i) {
     unsigned Shift = IsLittleEndian ? i * 8 : (Size - 1 - i) * 8;
     EmitByte((Val >> Shift) & 0xff, OS);
@@ -62,8 +65,8 @@ encodeInstruction(const MCInst &MI, raw_ostream &OS,
   //  if ((Opcode != LoongArch::NOP) && (Opcode != LoongArch::ROL) && !Binary)
   //    llvm_unreachable("unimplemented opcode in encodeInstruction()");
 
-    // Pseudo instructions don't get encoded and shouldn't be here
-    // in the first place!
+  // Pseudo instructions don't get encoded and shouldn't be here
+  // in the first place!
   const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
   bool isPseudo = Desc.isPseudo();
   if (isPseudo)
@@ -71,10 +74,24 @@ encodeInstruction(const MCInst &MI, raw_ostream &OS,
 
 
 
-  // For now all instructions are 4 bytes
-  int Size = 4; // FIXME: Have Desc.getSize() return the correct value!
+    // For now all instructions are 4 bytes
+    // Get byte count of instruction.
+    unsigned Size = Desc.getSize();
+    switch (Size) {
+        default:
+            llvm_unreachable("Unhandled encodeInstruction length!");
+        case 4: {
+            //EmitInstruction(Binary, Size, OS);
+            //Fixme: The encoding of instruction is already little endian,
+            // if we use support::little here to print as little endian, it will reverse
+            // the order of encoding by byte again. So we use support::big to remain
+            // the original order.
+            support::endian::write(OS, Binary, support::big);
 
-  EmitInstruction(Binary, Size, OS);
+            break;
+        }
+    }
+
 }
 
 //@CH8_1 {
@@ -233,10 +250,13 @@ LoongArchMCCodeEmitter::getMemEncoding(const MCInst &MI, unsigned OpNo,
                                   const MCSubtargetInfo &STI) const {
   // Base register is encoded in bits 9-5, offset is encoded in bits 21-10.
   assert(MI.getOperand(OpNo).isReg());
-  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups, STI) << 5;
-  unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups, STI) << 10;
-
-  return (OffBits & 0b1111111111110000000000) | RegBits;
+  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups, STI) ;
+  // left shift 5 bits for rj.
+  unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups, STI) << 5;
+    // (simm12 rj)
+    // getBinaryCodeForInstr() in LoongArchGenMCCodeEmitter.inc will left shift this value
+    // by 5 bits(remain the position for rd).
+  return (OffBits & 0b11111111111100000) | RegBits;
 }
 
 #include "LoongArchGenMCCodeEmitter.inc"
