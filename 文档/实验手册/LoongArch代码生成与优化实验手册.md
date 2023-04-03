@@ -1629,23 +1629,25 @@ Contents of section .text:
 
 ​		假设gv为一全局变量，那么在不同模式下它对应的寻址模式、DAG、汇编代码如下表所示（在生成的汇编代码中gv的数据所在的段标签名也是"gv"，同时在汇编指令中也代表gv在全局变量表内地址值。`LoongArchISD:XXX`为自定义DAG节点，后面会讲解） ：
 
-| 数据存储方式      | .sdata/.sbss                      | .data/.bss                                          |
-| ----------------- | --------------------------------- | --------------------------------------------------- |
-| 寻址模式          | 全局指针寄存器相对寻址            | 绝对寻址                                            |
-| 地址计算方式      | $GP + Offset                      | 绝对地址值                                          |
-| 合法化选择后的DAG | ![static-sdata](static-sdata.PNG) | ![static-data](static-data.PNG)                     |
-| LoongArch汇编代码 | `ori $r4, $gp, %gp_rel(gv)`       | `lu12i.w $r4, %hi(gv) `<br/>`ori $r4, $r4, %lo(gv)` |
-| 重定位时机        | 链接时                            | 链接时                                              |
+| 数据存储方式      | .sdata/.sbss                                                 | .data/.bss                                                   |
+| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| 寻址模式          | 全局指针寄存器相对寻址                                       | 绝对寻址                                                     |
+| 地址计算方式      | $GP + Offset                                                 | 绝对地址值                                                   |
+| 合法化选择后的DAG | <img src="static-sdata.PNG" alt="static-sdata" style="zoom: 33%;" /> | <img src="static-data.PNG" alt="static-data" style="zoom: 50%;" /> |
+| DAG List          | `(add register %GP, LoongArchISD::GPRel<gv>)`                | `（add LoongArchISD::Hi20<gv> LoongArchISD::Lo12<gv>)`       |
+| LoongArch汇编代码 | `ori $r4, $gp, %gp_rel(gv)`                                  | `lu12i.w $r4, %hi(gv) `<br/>`ori $r4, $r4, %lo(gv)`          |
+| 重定位时机        | 链接时                                                       | 链接时                                                       |
 
 ​		在PIC重定位模式下，全局变量表内地址均是相对全局指针寄存器计算的，如下表所示。
 
-| 数据存储方式      | .sdata/.sbss                | .data/.bss                                                   |
-| ----------------- | --------------------------- | ------------------------------------------------------------ |
-| 寻址模式          | 全局指针寄存器相对寻址      | 全局指针寄存器相对寻址                                       |
-| 地址计算方式      | `$GP + Offset`              | `$GP + Offset`                                               |
-| 合法化选择后的DAG | ![pic-sdata](pic-sdata.PNG) | ![pic-data](pic-data.PNG)                                    |
-| LoongArch汇编代码 | `ld.w $r4, %got(gv)($gp)`   | `lu12i.w $r4, %got_hi(gv)`<br/>`add $r4, $r4, $gp`<br/>`ld.w $r4, %got_lo(gv)($r4)` |
-| 重定位时机        | 链接时/加载时               | 链接时/加载时                                                |
+| 数据存储方式      | .sdata/.sbss                                                 | .data/.bss                                                   |
+| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| 寻址模式          | 全局指针寄存器相对寻址                                       | 全局指针寄存器相对寻址                                       |
+| 地址计算方式      | `$GP + Offset`                                               | `$GP + Offset`                                               |
+| 合法化选择后的DAG | <img src="pic-sdata.PNG" alt="pic-sdata" style="zoom: 50%;" /> | <img src="pic-data.PNG" alt="pic-data" style="zoom:50%;" />  |
+| DAG List          | `(load (LoongArchISD::Wrapper register %GP, GPRel<gv>))`     | `(load, (LoongArchISD::Wrapper (add LoongArchISD::Hi20<gv>, Register %GP), LoongAarchISD::Lo12<gv>))` |
+| LoongArch汇编代码 | `ld.w $r4, %got(gv)($gp)`                                    | `lu12i.w $r4, %got_hi(gv)`<br/>`add $r4, $r4, $gp`<br/>`ld.w $r4, %got_lo(gv)($r4)` |
+| 重定位时机        | 链接时/加载时                                                | 链接时/加载时                                                |
 
 ​		实际上，在标准汇编中，原生的数据存储方式只有.data/.bss段，.sdata/.sbss段实际上是我们自定义的一个段，在后面输出的汇编代码中可以看到，使用.sdata/.sbss模式时，汇编器会将该数据段用“`.section .sdata`"伪指令来描述，相当于把该数据段当成了和main函数一样的代码段来处理。而使用.data/.bss模式时则是“`.data`”。
 
