@@ -720,7 +720,7 @@ def HasSlt          : Predicate<"Subtarget->hasSlt()">;
 
 ​		文件中定义了LoongArchTargetLowering类，继承自TargetLowering。定义了LoongArchISD节点枚举变量，包括尾调用、32位立即数高/低16位，函数返回等。getTargetNodeName()函数可以根据操作码获取DAG节点的名称。
 
-​		定义了值传递参数（ByValArg）的信息结构体：FirstIdx为第一个寄存器的索引，NumRegs是存放该参数的寄存器的编号，Address为该参数在栈中的地址，即相对于SP/FP的偏移量。
+​		定义了值传递参数（ByValArg）的信息结构体：被分配的第一个参数寄存器的索引FirstIdx（8个参数寄存器的索引为1~8），用于存放该参数的寄存器的数量NumRegs（如果参数为64位，则可能会被分配两个连续的参数寄存器），参数在栈中的保存地址Address（相对于SP/FP的偏移量）。
 
 ```c++
 struct ByValArgInfo {
@@ -1592,15 +1592,19 @@ Contents of section .text:
  ...
 ```
 
-​		“Contents of section .text"段是可执行指令的集合，对应着汇编代码中的”# %bb.0:“段，即main函数。LoongArch的指令为32位定长，故第一条指令的Obj编码为”02bf0063“。查看3.1节生成的Asm代码，可知第一条指令的汇编代码为：`addi.w  $r3, $r3, -64`。
 
-​		“Contents of section .strtab”段是属于STRTAB类型的section，存着字符串，储存着符号的名字。
 
-​		“Contents of section .symtab”段存放所有section中定义的符号名字，描述了.strtab中的符号在内存中对应的内存地址。
+​	**.text段**	存放目标文件的可执行代码，包括函数体、指令序列等。在程序执行时，操作系统会将该段载入内存，并将代码指针指向该段首地址以便执行代码。LoongArch的指令为32位定长，故第一条指令的Obj编码为”02bf0063“。
 
-​		“Contents of section .comment”段为注释信息。
+**.strtab段**	存放字符串常量信息，如符号表中的符号名、重定位表中的符号名等，所有字符串按照字典序排列。
 
-​		addi.w为2RI12格式的指令，在小端模式下，其位码排列为`<opcode | I12 | rj | rd>`。其中addi.w的Opcode占10位：0000001010，-64为12位立即数：111111000000，寄存器rj和rd均为栈指针寄存器SP，寄存器编码占5位：00011（十进制的3）。故`addi.w  $r3, $r3, -64`对应的二进制编码应为：00000010101111110000000001100011，即十六进制的`02bf0063`，Obj编码输出正确。
+**.symtab段**	存放目标文件的符号表，包含了目标文件中定义和引用的符号信息，如函数名、变量名、常量等，所有符号按照字典序排列。符号表中的每个符号都包含了符号名、符号值（即符号的地址或相对地址）、符号大小等信息，用于在程序链接时进行符号解析。
+
+**.comment段**	存放目标文件的注释信息，通常用于标识编译器类型、编译器版本、编译选项等信息用于调试和分析，该段是可选的。
+
+
+
+​	addi.w为2RI12格式的指令，在小端模式下，其位码排列为`<opcode | I12 | rj | rd>`。其中addi.w的Opcode占10位：0000001010，-64为12位立即数：111111000000，寄存器rj和rd均为栈指针寄存器SP，寄存器编码占5位：00011（十进制的3）。故`addi.w  $r3, $r3, -64`对应的二进制编码应为：00000010101111110000000001100011，即十六进制的`02bf0063`，Obj编码输出正确。
 
 ​		可使用`llvm-readelf -h test.o`查看ELF文件具体格式信息
 
@@ -1634,7 +1638,7 @@ Contents of section .text:
 | 寻址模式          | 全局指针寄存器相对寻址                                       | 绝对寻址                                                     |
 | 地址计算方式      | $GP + Offset                                                 | 绝对地址值                                                   |
 | 合法化选择后的DAG | <img src="static-sdata.PNG" alt="static-sdata" style="zoom: 33%;" /> | <img src="static-data.PNG" alt="static-data" style="zoom: 50%;" /> |
-| DAG List          | `(add register %GP, LoongArchISD::GPRel<gv>)`                | `（add LoongArchISD::Hi20<gv> LoongArchISD::Lo12<gv>)`       |
+| DAG List          | `(add register %GP, LoongArchISD::GPRel<gv>)`                | `(add LoongArchISD::Hi20<gv> LoongArchISD::Lo12<gv>)`        |
 | LoongArch汇编代码 | `ori $r4, $gp, %gp_rel(gv)`                                  | `lu12i.w $r4, %hi(gv) `<br/>`ori $r4, $r4, %lo(gv)`          |
 | 重定位时机        | 链接时                                                       | 链接时                                                       |
 
@@ -1726,7 +1730,7 @@ globalVB:
 
 ​		在静态链接模式下必须使用静态重定位模式，在动态链接模式下必须使用位置无关寻址模式。在静态链接模式下，相对程序计数器（PC）的地址（指令`lu12i.w $r4, %hi(gv)`和gv之间的相对地址）可以被解析，由于LoongArch采用PC相对地址编码模式，该汇编程序可以在任意的地址块下正确执行，因为它不依赖自身的绝对地址。
 
-​		如果该程序使用绝对地址，并且存放在加载时已知的特定地址下，那么形如`lu12i.w $r4, %hi(gv)`等调用gv数据块的指令的重定位记录就可在操作系统将可执行文件加载到内存时进行解析。如果该程序使用绝对地址，并且存放在链接时已知的特定地址下，那么其重定位记录就可在链接阶段进行解析。
+​		静态重定位的程序使用绝对地址，如果其具体地址可在加载时确定，则指令gv数据块的重定位记录就可在操作系统将可执行文件加载到内存时进行解析；如果其具体地址需在链接时确定，则其重定位记录就需在链接阶段进行解析。
 
 
 
