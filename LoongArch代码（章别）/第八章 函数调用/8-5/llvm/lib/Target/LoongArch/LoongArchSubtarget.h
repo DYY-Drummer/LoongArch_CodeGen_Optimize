@@ -113,7 +113,7 @@ namespace llvm {
             return hasLoongArch32();
         }
 
-        unsigned stackAlignment() const { return 16; }
+        unsigned stackAlignment() const { return 8; }
 
         LoongArchSubtarget &initializeSubtargetDependencies(StringRef CPU, StringRef FS,
                                                        const TargetMachine &TM);

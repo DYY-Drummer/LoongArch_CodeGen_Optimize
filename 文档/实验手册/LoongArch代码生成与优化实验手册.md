@@ -1160,7 +1160,7 @@ def : Pat<(i32 imm:$imm), (ORI (LU12I_W (HI20 imm:$imm)), (LO12 imm:$imm))>;
 
 ​		之后，ReplaceADDI_WSLLI_WWithLU12I_W()会把指令序列开头的`addi.w`和`slli.w`替换成一个`lu12i.w`，例如：
 
-| 栈空间地址范围    | 栈大小     | 函数头（创建栈）                                | 函数尾（销毁栈）                                 |
+| 栈空间地址范围    | 栈大小     | 创建栈                                          | 销毁栈                                           |
 | ----------------- | ---------- | ----------------------------------------------- | ------------------------------------------------ |
 | 0x0800~0x0ff8     | 0x0800     | `addi.w $r3, $r3, -2048`                        | `ori $r21, $r0, 2048`<br>`add.w $r3, $r3, $r21`  |
 | 0x1000~0xfffffff8 | 0x90008000 | `lu12i.w $r21, 458744`<br>`add.w $r3, $r3, $21` | `lu12i.w $r21, 589832`<br/>`add.w $r3, $r3, $21` |
@@ -1978,7 +1978,7 @@ ld.w	$r4, $r4, 0      // 以pointer的值为目标地址读取值，即*pointer
 
 + **LoongArchISelLowering.cpp**
 
-​		布尔型变量为i1变量，但是龙芯架构中没有原生的i1型数据支持，所以我们将i1扩展为i32型数据再 setcc系列判断指令来生成。
+​		布尔型变量为i1变量，但是龙芯架构中没有原生的i1型数据支持，所以我们将i1扩展为i32型数据再使用setcc系列判断指令来生成。
 
 ​		`setBooleanContents(ZeroOrOneBooleanContent)`用来描述目标机器如何表达“真值”和“假值”的语义，使用“ZeroOrOneBooleanContent”代表只看数据的第0位，为1即真，为0即假；
 
@@ -2307,23 +2307,23 @@ SelectionDAG has 14 nodes:
 
 ​		在有条件跳转语句中可能出现的所有IR DAG情况和其匹配的机器指令DAG的对应关系如下表所示：
 
-|      | IR DAG                                              | 机器指令DAG                         |
-| ---- | --------------------------------------------------- | ----------------------------------- |
-|      | `(brcond (i32 (setne RC:$lhs, 0)), bb:$dst)`        | `(BNE RC:$lhs, ZERO, bb:$dst)`      |
-|      | `(brcond (i32 (seteq RC:$lhs, 0)), bb:$dst)`        | `(BEQ RC:$lhs, ZERO, bb:$dst)`      |
-|      | `(brcond (i32 (seteq RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BEQ RC:$lhs, RC:$rhs, bb:$dst)`   |
-|      | `(brcond (i32 (setueq RC:$lhs, RC:$rhs)), bb:$dst)` | `(BEQ RC:$lhs, RC:$rhs, bb:$dst)`   |
-|      | `(brcond (i32 (setne RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BNE RC:$lhs, RC:$rhs, bb:$dst)`   |
-|      | `(brcond (i32 (setune RC:$lhs, RC:$rhs)), bb:$dst)` | `(BNE RC:$lhs, RC:$rhs, bb:$dst)`   |
-|      | `(brcond (i32 (setlt RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BLT RC:$lhs, RC:$rhs, bb:$dst)`   |
-|      | `(brcond (i32 (setult RC:$lhs, RC:$rhs)), bb:$dst)` | `(BLTU RC:$lhs, RC:$rhs, bb:$dst)`  |
-|      | `(brcond (i32 (setgt RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BLT RC:$rhs, RC:$lhs, bb:$dst)`   |
-|      | `(brcond (i32 (setugt RC:$lhs, RC:$rhs)), bb:$dst)` | `(BLTU RC:$rhs, RC:$lhs, bb:$dst)`  |
-|      | `(brcond (i32 (setle RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BGE RC:$rhs, RC:$lhs, bb:$dst)`   |
-|      | `(brcond (i32 (setule RC:$lhs, RC:$rhs)), bb:$dst)` | `(BGEU  RC:$rhs, RC:$lhs, bb:$dst)` |
-|      | `(brcond (i32 (setge RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BGE RC:$lhs, RC:$rhs, bb:$dst)`   |
-|      | `(brcond (i32 (setuge RC:$lhs, RC:$rhs)), bb:$dst)` | `(BGEU RC:$lhs, RC:$rhs, bb:$dst)`  |
-|      | `(brcond RC:$cond, bb:$dst)`                        | `(BNE RC:$cond, ZEROReg, bb:$dst)`  |
+| IR DAG                                              | 机器指令DAG                         |
+| --------------------------------------------------- | ----------------------------------- |
+| `(brcond (i32 (setne RC:$lhs, 0)), bb:$dst)`        | `(BNE RC:$lhs, ZERO, bb:$dst)`      |
+| `(brcond (i32 (seteq RC:$lhs, 0)), bb:$dst)`        | `(BEQ RC:$lhs, ZERO, bb:$dst)`      |
+| `(brcond (i32 (seteq RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BEQ RC:$lhs, RC:$rhs, bb:$dst)`   |
+| `(brcond (i32 (setueq RC:$lhs, RC:$rhs)), bb:$dst)` | `(BEQ RC:$lhs, RC:$rhs, bb:$dst)`   |
+| `(brcond (i32 (setne RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BNE RC:$lhs, RC:$rhs, bb:$dst)`   |
+| `(brcond (i32 (setune RC:$lhs, RC:$rhs)), bb:$dst)` | `(BNE RC:$lhs, RC:$rhs, bb:$dst)`   |
+| `(brcond (i32 (setlt RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BLT RC:$lhs, RC:$rhs, bb:$dst)`   |
+| `(brcond (i32 (setult RC:$lhs, RC:$rhs)), bb:$dst)` | `(BLTU RC:$lhs, RC:$rhs, bb:$dst)`  |
+| `(brcond (i32 (setgt RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BLT RC:$rhs, RC:$lhs, bb:$dst)`   |
+| `(brcond (i32 (setugt RC:$lhs, RC:$rhs)), bb:$dst)` | `(BLTU RC:$rhs, RC:$lhs, bb:$dst)`  |
+| `(brcond (i32 (setle RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BGE RC:$rhs, RC:$lhs, bb:$dst)`   |
+| `(brcond (i32 (setule RC:$lhs, RC:$rhs)), bb:$dst)` | `(BGEU  RC:$rhs, RC:$lhs, bb:$dst)` |
+| `(brcond (i32 (setge RC:$lhs, RC:$rhs)), bb:$dst)`  | `(BGE RC:$lhs, RC:$rhs, bb:$dst)`   |
+| `(brcond (i32 (setuge RC:$lhs, RC:$rhs)), bb:$dst)` | `(BGEU RC:$lhs, RC:$rhs, bb:$dst)`  |
+| `(brcond RC:$cond, bb:$dst)`                        | `(BNE RC:$cond, ZEROReg, bb:$dst)`  |
 
 ​		上表中第1、2种和最后一种IR DAG来自于条件判断语句只有一个操作数的情况，例如`if(cond)`，此时相当于将cond与0比较，非零即是真。
 
@@ -2829,9 +2829,15 @@ int func_a(int x) {
 
 
 
-# 第九章 使用NEMU模拟器测试目标程序
+# 第九章 性能测试
 
-​		龙芯64位云服务前目前暂时无法运行32位的可执行程序，龙芯官方提供了一套基于南京大学NEMU项目实现的LoongArch32模拟器：https://gitee.com/cheungxi/la32r-nemu。
+
+
+## NEMU模拟器
+
+​	
+
+​	龙芯64位云服务前目前暂时无法运行32位的可执行程序，龙芯官方提供了一套基于南京大学NEMU项目实现的LoongArch32模拟器：https://gitee.com/cheungxi/la32r-nemu。
 
 ​		按照如下步骤安装运行NEMU模拟器：
 
@@ -2864,6 +2870,18 @@ si
 ​		如下图，通过NEMU的调试信息可以查看可执行程序解析出的汇编形式的指令，寄存器的当前值和栈帧信息等。其中x指令为内存检查指令，使用格式为：[x  要查看的字节数  起始地址]。也可以使用help命令查看NEMU的所有指令说明。
 
 ![NEMU测试截图](NEMU测试截图.PNG)
+
+
+
+## test-suite测试集
+
+|              | Mips mips32 | ARM cortex-M7 | X86 atom | LoongArch32 |
+| ------------ | ----------- | ------------- | -------- | ----------- |
+| 指令数       | 3706        | 4247          | 4109     | 4128        |
+| 栈空间       | 2904        | 2468          | 2724     | 3704        |
+| 寄存器分配   | 2369        | 2263          | 1645     | 2705        |
+| 访问内存次数 | 2007        | 2251          | 3042     | 2061        |
+| 尝试分支次数 | 13560       | 35300         | 32089    | 1722        |
 
 
 
