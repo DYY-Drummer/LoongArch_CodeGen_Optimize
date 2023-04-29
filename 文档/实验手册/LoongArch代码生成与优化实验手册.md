@@ -2977,3 +2977,71 @@ si
 + ARM System Developer’s Guide: Designing and Optimizing System Software (The Morgan Kaufmann Series in Computer Architecture and Design).
 
 + Compilers: Principles, Techniques, and Tools (2nd Edition)
+
+
+
+
+
+# 附录：缩略词索引
+
+
+
+**GR**：通用寄存器（General Register）
+
+**ABI**：应用程序二进制接口（Application Binary Interface）
+
+**SP**：栈指针（Stack Pointer)
+
+**FP**：帧指针（Frame Pointer)
+
+**JIT**：动态解释执行，即时编译（Just-In-Time)
+
+**DAG**：有向无环图（Directed Acyclic Graph)
+
+**SD**：Selection DAG
+
+**ISD**：IR Selection DAG
+
+**MC**：Machine Code
+
+**SE**：标准版本——LA32（Standard Edition)
+
+**ISel**：指令选择（Instruction Selection）
+
+**MI**：Machine Instruction
+
+**Asm**：汇编（Assembly）
+
+**CSR**：被调用者保存寄存器（Callee-Saved Registers）
+
+**CFI**：（Call Frame Information）
+
+**Eh**：异常处理（Exception handling，LLVM异常处理内部函数以llvm.eh为前缀）
+
+**FI**：帧索引（Frame Index）
+
+**MBB**：机器代码基本块（Machine Basic Block）
+
+**MO**：内存操作数（Memory Operand)
+
+**LEK**：龙芯（操作数）表达式类型（LoongArch Experession Kind)
+
+**PCREL**：pc-relative地址（PC Relative)
+
+**PIC**：位置无关代码（Position Independent Code)
+
+**GOT**：全局偏移表（Global Offset Table)
+
+**ELF**：（Executable and Linkable Format)
+
+**GPREL**：全局指针相关重定位（GP-Relative Relocations)
+
+**TPREL**：线程指针相关重定位（TP-Relative Relocations)
+
+**TLS**：线程局部存储（Thread Local Store)
+
+**CL**：LLVM命令行库（Command Line)
+
+**CFA**：控制流分析（Control Flow Analysis)
+
+**CC**：函数调用约定（Calling Convention)
